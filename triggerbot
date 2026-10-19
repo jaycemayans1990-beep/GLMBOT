@@ -1,6 +1,6 @@
--- Luau | snyx_aimbot_v2_9.lua | Roblox executor (Synapse-style env)
+-- Luau | snyx_aimbot_v2_10.lua | Roblox executor (Synapse-style env)
 -- =====================================================================
--- SNYX ADVANCED PREDICTION AIMBOT & ESP (v2.9 — ANTI-CRASH / TRIGGER FIX)
+-- SNYX ADVANCED PREDICTION AIMBOT & ESP (v2.10 — TRIGGER WALL CHECK)
 -- - แก้เกมตัดดับปิดเองตอนหันเข้าเป้า: trigger bot เดิมเช็ค "ผู้เล่นกดเอง" ด้วย
 --   IsMouseButtonPressed — แต่มันเห็นคลิกสังเคราะห์ของตัวเองด้วย → กด → เฟรมถัดไปคิดว่า
 --   คนเล่นกด → ปล่อย → คิดว่าว่าง → กดใหม่ … วนรัวกด/ปล่อยทุกเฟรมตั้งแต่เข้าเป้าครั้งแรก
@@ -17,6 +17,10 @@
 --   + รอจุดเล็งนิ่ง (ไม่ snap/ไกล่/สะบัด) ค่อยกด = จังหวะยิงธรรมชาติ
 -- - กำแพงกัน NaN/Inf: ตัวเลขพังจาก replication ไม่มีทางลอดไปถึง camera CFrame
 --   (safeUnit กรองเวกเตอร์พัง / velocity บ้าคลั่ง = ทิ้ง + รีเซ็ต EMA / เขียนกล้องผ่าน pcall)
+-- - Trigger ไม่ยิงทะลุวัตถุขวาง: มี wall check ของตัวเอง (Trigger Wall Check, default ON)
+--   เดิมยืมเงื่อนไข Wall Check ของ aimbot (default OFF) → ตอนล็อคทะลุกำแพง/เป้าเพิ่ง
+--   หลบหลังกล่อง (aimbot กุม grace ไว้) จุดเล็งยังอยู่ในมุม = ยิงใส่กำแพง — ตอนนี้เช็ค
+--   เส้นสายตาทุกครั้งก่อนกด (ทะลุพุ่มไม้/กระจกใสได้เหมือนปืนจริง)
 -- - Trigger Bot: ยิงเองเมื่อจุดเล็งเข้าศัตรู — ดีเลย์จำลอง reaction time (จิตเตอร์ ±15%),
 --   กดค้างตราบใดที่ยังบนเป้า (auto ยิงต่อเนื่อง / semi หนึ่งคลิก), ผู้เล่นกดเอง = ถอนมือ,
 --   สะบัดจอ = หยุดยิงระหว่างสะบัด, ทำงานได้ทั้งตอนล็อค (เช็คมุมคลาด) และสแตนด์อโลน (ray กลางจอ)
@@ -102,6 +106,7 @@ local State = {
         FreeSteer = true,     -- [v2.7] ลากหนีเป้า = กล้องผ่อนแรงดึงตามมือ ไม่ตีค้อน (ไม่เหนียว)
         TriggerBot = true,    -- [v2.8] ยิงอัตโนมัติเมื่อจุดเล็งเข้าศัตรู (ปิดได้ที่เมนู)
         TriggerSafeInput = true, -- [v2.9] ยิงผ่าน VirtualUser (input ระดับ engine เสถียรสุด) ก่อน — ปิด = ใช้ mouse1press ตรง ๆ
+        TriggerWallCheck = true, -- [v2.10] ไม่ยิงถ้ามีวัตถุขวางกั้นเส้นสายตา (แยกจาก Wall Check ของ aimbot)
         TriggerDelay = 90,    -- [v2.8] ดีเลย์จำลอง reaction time (ms) — 0 = ไวสุด, ~90 = ธรรมชาติ
         TriggerAngle = 0.7,   -- [v2.8] มุมคลาด (องศา) ที่ถือว่า "เข้าเลนส์" ตอนล็อคเป้าอยู่
         TargetPartMode = "Head",
@@ -1021,6 +1026,8 @@ end)
 
 -- หา "ศัตรูใต้จุดเล็ง" — 2 ทาง: ล็อคเป้าอยู่ = เช็คมุมคลาดของ part ที่ล็อค (ไวกว่า เพราะ
 -- aimbot กำลังดันจุดเล็งเข้าหาอยู่แล้ว) / ไม่ล็อค = ray กลางจอ (กำแพงตัดเอง ยิงทะลุไม่ได้)
+-- [v2.10] ทั้งสองทางยืนยันเส้นสายตาก่อนยิงเสมอ — เดิมฝั่งล็อคเช็คกำแพงด้วย
+-- State.WallCheck ของ aimbot (default OFF) = ยิงใส่กำแพงตอนล็อคทะลุ/เป้าเพิ่งหลบหลังบังเก็นได้
 local function findTriggerTarget(camera)
         local shooterPos = camera.CFrame.Position
         local look = camera.CFrame.LookVector
@@ -1031,7 +1038,9 @@ local function findTriggerTarget(camera)
                 if not toTarget then return nil end
                 local errDeg = math.deg(math.acos(math.clamp(look:Dot(toTarget), -1, 1)))
                 if errDeg > (State.TriggerAngle or 0.7) then return nil end
-                if State.WallCheck and not VisibilityService:CheckVisibility(
+                -- [v2.10] wall check ของ trigger เอง (default ON) — แยกจาก Wall Check ของ aimbot
+                -- เช็คเส้นสายตาถึงจุดเล็งจริงทุกเฟรมก่อนยิง; ทะลุพุ่มไม้/กระจกใสได้ (pierce 1 ชั้น)
+                if State.TriggerWallCheck ~= false and not VisibilityService:CheckVisibility(
                         TargetService.CurrentTarget.Character, 1, targetPart) then
                         return nil
                 end
@@ -1733,4 +1742,9 @@ end)
 -- เพื่อสลับไปใช้ mouse1press ตรง ๆ (เกมบางตัวอ่านคลิกจาก VirtualUser ไม่ครบ)
 createToggle("Trigger Safe Input", State.TriggerSafeInput, function(v)
         State.TriggerSafeInput = v
+end)
+-- [v2.10] เช็ควัตถุขวางก่อนยิง — ปิดเมื่อไหร่? เกมที่กำแพงบางชั้นไม่บังกระสุนจริง
+-- (raycast บังแต่กระสุนทะลุ) จะทำให้ trigger ยิงขาดจังหวะ — ปิดแล้วยิงได้ตามปกติ
+createToggle("Trigger Wall Check", State.TriggerWallCheck, function(v)
+        State.TriggerWallCheck = v
 end)
