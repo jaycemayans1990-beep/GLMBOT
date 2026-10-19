@@ -1,6 +1,17 @@
--- Luau | snyx_aimbot_v2_10.lua | Roblox executor (Synapse-style env)
+-- Luau | snyx_aimbot_v3.lua | Roblox executor (Synapse-style env)
 -- =====================================================================
--- SNYX ADVANCED PREDICTION AIMBOT & ESP (v2.10 — TRIGGER WALL CHECK)
+-- SNYX ADVANCED PREDICTION AIMBOT & ESP (v3.0 — SILENT AIM)
+-- - [v3.0] Silent Aim: กระสุนดัดเข้าเป้าโดยกล้อง "ไม่ขยับ" — hook ช่องทางยิงของเกม
+--   (workspace:Raycast / FindPartOnRay* / ViewportPointToRay / ScreenPointToRay / Mouse.Hit)
+--   แล้วเปลี่ยนทิศ ray ให้พุ่งเข้าจุดเล็งของเป้า — มุมมองยังอยู่ที่เดิม = ดูเป็นคนยิงธรรมชาติ
+-- - SA Mode 4 ช่องทาง: Auto (เปิดหมด) / Raycast / CamRay / Mouse Hit — เกมไหน Auto ไม่ดูด
+--   กระสุน ให้สลับโหมดทีละแบบ (แต่ละเกมใช้ช่องทางคำนวณกระสุนคนละแบบ)
+-- - โปรไฟล์เกมอัตโนมัติ: ตรวจชื่อเกมจาก PlaceId — "Ground War" = เปิด Silent Aim + โหมด
+--   Auto ให้ทันทีตั้งแต่รันสคริปต์ ไม่ต้องเข้าเมนูกดเอง
+-- - ตัวกรองกันดัดผิด ray: รับเฉพาะ ray ที่เกิดใกล้กล้อง/หัวผู้เล่น + ความยาวระดับกระสุน
+--   (ตัด ground-check ใต้ตัวสั้น ๆ กับ ray ระบบอื่นที่เกิดไกล) + SA Wall Check ก่อนดัดเสมอ
+-- - ray ของสคริปต์เอง (wallcheck aimbot/ESP/trigger) ผ่าน internalRaycast = ไม่ถูกดัด —
+--   ไม่งั้นระบบเช็คกำแพงจะโกหกว่าเห็นเป้าตลอด (ray เช็คถูกดัดเข้าหาเป้าซะเอง)
 -- - แก้เกมตัดดับปิดเองตอนหันเข้าเป้า: trigger bot เดิมเช็ค "ผู้เล่นกดเอง" ด้วย
 --   IsMouseButtonPressed — แต่มันเห็นคลิกสังเคราะห์ของตัวเองด้วย → กด → เฟรมถัดไปคิดว่า
 --   คนเล่นกด → ปล่อย → คิดว่าว่าง → กดใหม่ … วนรัวกด/ปล่อยทุกเฟรมตั้งแต่เข้าเป้าครั้งแรก
@@ -107,6 +118,10 @@ local State = {
         TriggerBot = true,    -- [v2.8] ยิงอัตโนมัติเมื่อจุดเล็งเข้าศัตรู (ปิดได้ที่เมนู)
         TriggerSafeInput = true, -- [v2.9] ยิงผ่าน VirtualUser (input ระดับ engine เสถียรสุด) ก่อน — ปิด = ใช้ mouse1press ตรง ๆ
         TriggerWallCheck = true, -- [v2.10] ไม่ยิงถ้ามีวัตถุขวางกั้นเส้นสายตา (แยกจาก Wall Check ของ aimbot)
+        SilentAim = false,          -- [v3.0] กระสุนดัดเข้าเป้าโดยกล้องไม่ขยับ (hook ช่องทางยิงของเกม)
+        SilentAimMode = "Auto",     -- [v3.0] Auto / Raycast / CamRay / Mouse Hit — Auto ไม่ดูด = สลับโหมด
+        SilentAimWallCheck = true,  -- [v3.0] เป้าโดนกำแพงบัง = ไม่ดัดกระสุน (ไม่ยิงทะลุสิ่งขวาง)
+        SilentAimFOV = 120,         -- [v3.0] วงจับเป้า (px สเกลจอ) ของ silent aim ตอน aimbot ไม่ได้ล็อค
         TriggerDelay = 90,    -- [v2.8] ดีเลย์จำลอง reaction time (ms) — 0 = ไวสุด, ~90 = ธรรมชาติ
         TriggerAngle = 0.7,   -- [v2.8] มุมคลาด (องศา) ที่ถือว่า "เข้าเลนส์" ตอนล็อคเป้าอยู่
         TargetPartMode = "Head",
@@ -121,6 +136,21 @@ local State = {
         ESP = true,
         ESPName = false
 }
+
+-- [v3.0] โปรไฟล์เกม — ตรวจชื่อเกมจาก PlaceId แล้วตั้งค่า default ให้พร้อมเล่น
+-- Ground War = เป้าหมายหลัก: เปิด Silent Aim (โหมด Auto) ให้เลย ไม่ต้องเข้าเมนูกดเอง
+local GAME_PROFILE = "default"
+do
+        local ok, info = pcall(function()
+                return game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId)
+        end)
+        local name = (ok and type(info) == "table" and type(info.Name) == "string")
+                and info.Name:lower() or ""
+        if name:find("ground war") then GAME_PROFILE = "groundwar" end
+end
+if GAME_PROFILE == "groundwar" then
+        State.SilentAim = true
+end
 
 local function getCamera() return Workspace.CurrentCamera end
 
@@ -269,6 +299,19 @@ if LocalPlayer then
         CleanupManager:AddConn("CharAdded", LocalPlayer.CharacterAdded:Connect(setupCharacterWeaponListener))
 end
 
+-- [v3.0] ช่องทาง ray ภายใน — ทุก ray ที่ "สคริปต์" ยิงเอง (wallcheck aimbot/ESP/trigger/
+-- silent aim) ต้องผ่านฟังก์ชันนี้เท่านั้น ตอน Silent Aim hook ช่องทาง Raycast ของเกม
+-- จะได้ไม่ดัด ray ของเราเองไปเข้าเป้า (ไม่งั้นระบบเช็คกำแพงจะเห็นทะลุกำแพงตลอด)
+local internalRayActive = false
+
+local function internalRaycast(origin, direction, params)
+        internalRayActive = true
+        local ok, result = pcall(Workspace.Raycast, Workspace, origin, direction, params)
+        internalRayActive = false
+        if ok then return result end
+        return nil
+end
+
 -- ==========================================
 -- 5. VISIBILITY SERVICE (Reuse RaycastParams)
 -- ==========================================
@@ -314,7 +357,7 @@ function VisibilityService:CheckVisibility(targetCharacter, pierceCount, specifi
 
         for i = 1, maxPierces do
                 RayParams.FilterDescendantsInstances = ScratchFilter
-                local result = Workspace:Raycast(currentOrigin, currentDirection, RayParams)
+                local result = internalRaycast(currentOrigin, currentDirection, RayParams)
 
                 if not result then return true end
 
@@ -1051,7 +1094,7 @@ local function findTriggerTarget(camera)
         local scratch = { camera }
         if myChar then scratch[2] = myChar end
         triggerRayParams.FilterDescendantsInstances = scratch
-        local hit = Workspace:Raycast(shooterPos, look * TRIGGER_RAY_DIST, triggerRayParams)
+        local hit = internalRaycast(shooterPos, look * TRIGGER_RAY_DIST, triggerRayParams)
         if not hit then return nil end
 
         local node = hit.Instance
@@ -1122,12 +1165,306 @@ local function runTriggerBot(camera, aimBusy)
         end
 end
 
--- [v2.7] วัด "การหมุนที่มาจากมือผู้เล่น" ให้สะอาดจากอิทธิพลของเรา (แก้จุดอ่อน v2.6)
---   v2.6 เทียบกล้องกับ lastAimLook (ที่เราเขียน) → ตอน track เป้าไว ตัวเลขปนความเร็ว
---   ที่เราดึงกล้องเอง → หลุดเกณฑ์ง่าย → ปล่อยล็อค-จับใหม่วนลูป = กระตุก
---   v2.7 วัด 2 ฐานแล้วเลือกค่าต่ำสุด ตัดอิทธิพลของเราออกทั้งสองโมเดลกล้อง:
---   (a) เทียบผลอ่านกล้อง 2 เฟรม (อ่านตอนต้นเฟรม ก่อนที่เราจะเขียนเสมอ)
---   (b) เทียบผลอ่านกับ CFrame ล่าสุดที่เราเขียน
+-- ==========================================
+-- 9.6 SILENT AIM (v3.0 — กระสุนดัดเข้าเป้า กล้องไม่ขยับ)
+-- ==========================================
+-- เกม FPS Roblox คำนวณกระสุนฝั่ง client ผ่าน API กลุ่ม ray เป็นหลัก — จุดนี้คือช่องทาง
+-- hook: ดักตอนเกมยิง ray แล้วเปลี่ยน "ทิศ" ให้พุ่งเข้าจุดเล็งของเป้า กล้องยังอยู่ที่เดิม
+-- ตัวกรองกันดัดผิด ray (สำคัญมาก — ดัดผิด = เดินบนอากาศ/ระบบอื่นพัง):
+--   (1) เปิด Silent Aim + มีเป้าที่จับไว้จริง
+--   (2) ray เกิดใกล้กล้อง (≤16 stud) หรือใกล้หัว/ลำตัวผู้เล่น (≤6 stud) — ray ของ NPC AI
+--       หรือยานพาหนะเกิดไกลจากทั้งคู่ = ผ่านไม่ได้
+--   (3) ความยาว ray 50-5000 stud — สั้นกว่านั้นคือ ground-check ใต้ตัว (ดัดแล้วเดินลอย)
+--   (4) SA Wall Check: เป้าโดนกำแพงบัง = ไม่ดัด (ยิงตรงตามปกติ — ไม่ยิงทะลุสิ่งขวาง)
+--   (5) ray ของสคริปต์เองผ่าน internalRaycast (flag ภายใน) = ไม่เข้าระบบดัด
+-- computeRedirect ออกแบบให้ idempotent — hook ซ้อนกันหลายชั้น (namecall + hookfunction)
+-- ได้ทิศเดิมเสมอ ไม่เกิดการดัดสะสม
+local SA_ORIGIN_RADIUS = 16
+local SA_HEAD_RADIUS = 6
+local SA_MIN_RAY_DIST = 50
+local SA_MAX_RAY_DIST = 5000
+
+local silentAimSupported = true
+local silentTargetPlayer = nil
+local silentTargetPart = nil
+local saRunToken = true -- สคริปต์ถูกล้าง/รีรัน = hook รอบเก่ากลายเป็น pass-through ทันที
+
+-- จุดเล็งของเป้า = part ที่ล็อคไว้ (Head/Torso/Random ตาม Target Part ของเมนูเดิม)
+local function getSilentAimPosition()
+        local part = silentTargetPart
+        if part and part.Parent and part:IsDescendantOf(Workspace) then
+                local pos = part.Position
+                if isFiniteVec3(pos) then return pos end
+        end
+        return nil
+end
+
+-- ตัดสินใจว่า ray นี้ควรถูกดัดไหม → คืน "ทิศใหม่" (คงความยาวเดิม = เกมคำนวณระยะเดิม)
+local function computeRedirect(origin, direction)
+        if internalRayActive or not saRunToken or not State.SilentAim then return nil end
+        if not hasActiveWeapon() then return nil end
+        local aimPos = getSilentAimPosition()
+        if not aimPos then return nil end
+        if not isFiniteVec3(origin) or not isFiniteVec3(direction) then return nil end
+        local mag = direction.Magnitude
+        if not (mag >= SA_MIN_RAY_DIST and mag <= SA_MAX_RAY_DIST) then return nil end
+
+        local camera = getCamera()
+        if not camera then return nil end
+        local nearCam = (origin - camera.CFrame.Position).Magnitude <= SA_ORIGIN_RADIUS
+        if not nearCam then
+                local myChar = LocalPlayer and LocalPlayer.Character
+                local anchor = myChar and (myChar:FindFirstChild("Head") or myChar:FindFirstChild("HumanoidRootPart"))
+                if not (anchor and (origin - anchor.Position).Magnitude <= SA_HEAD_RADIUS) then
+                        return nil -- เกิดไกลทั้งกล้องและตัวผู้เล่น = ไม่ใช่กระสุนของเรา
+                end
+        end
+
+        -- [v3.0] เป้าโดนวัตถุขวาง = ไม่ดัดกระสุน (เส้นสายตาไม่ผ่าน ยิงตรงเหมือนปกติ)
+        if State.SilentAimWallCheck ~= false then
+                local tp = silentTargetPlayer
+                if not (tp and tp.Parent) then return nil end
+                if not VisibilityService:CheckVisibility(tp.Character, 1, silentTargetPart) then
+                        return nil
+                end
+        end
+
+        local toAim = aimPos - origin
+        local toAimUnit = safeUnit(toAim)
+        local dirUnit = safeUnit(direction)
+        if not toAimUnit or not dirUnit then return nil end
+        if toAimUnit:Dot(dirUnit) <= 0 then return nil end -- เป้าอยู่หลังต้นฉาก = ปล่อยผ่าน
+        return toAimUnit * mag
+end
+
+-- เกตเปิด/ปิดของแต่ละช่องทางตาม SA Mode
+local function saRayChannelActive()
+        local mode = State.SilentAimMode
+        return mode == "Auto" or mode == "Raycast"
+end
+
+local function saCamChannelActive()
+        local mode = State.SilentAimMode
+        return mode == "Auto" or mode == "CamRay"
+end
+
+local function saMouseChannelActive()
+        local mode = State.SilentAimMode
+        return mode == "Auto" or mode == "Mouse Hit"
+end
+
+-- ===== ช่องทาง 4: Mouse.Hit / Mouse.Target (เกมอ่านทิศยิงจากเมาส์ — ส่วนใหญ่เกมเก่า) =====
+-- __index hook โดนทุกการอ่าน property ในเกม = แพงสุดในสี่ช่องทาง → ติดตั้งเฉพาะเมื่อผู้เล่น
+-- เลือกโหมด "Mouse Hit" อย่างชัดเจน (Auto ไม่ติดตั้งให้เอง)
+local mouseRef = nil
+if LocalPlayer then
+        local okM, m = pcall(function() return LocalPlayer:GetMouse() end)
+        if okM then mouseRef = m end
+end
+local oldIndexHook = nil
+local mouseHookInstalled = false
+
+local function saSetMouseHookActive(active)
+        if not silentAimSupported or not mouseRef then return end
+        if active and not mouseHookInstalled
+                and type(hookmetamethod) == "function" and type(newcclosure) == "function" then
+                local ok, old = pcall(hookmetamethod, game, "__index", newcclosure(function(t, k)
+                        if t == mouseRef and not internalRayActive and saRunToken
+                                and State.SilentAim and saMouseChannelActive() then
+                                if k == "Hit" then
+                                        local aimPos = getSilentAimPosition()
+                                        if aimPos then
+                                                if State.SilentAimWallCheck ~= false then
+                                                        local tp = silentTargetPlayer
+                                                        if (tp and tp.Parent)
+                                                                and VisibilityService:CheckVisibility(tp.Character, 1, silentTargetPart) then
+                                                                return CFrame.new(aimPos)
+                                                        end
+                                                else
+                                                        return CFrame.new(aimPos)
+                                                end
+                                        end
+                                elseif k == "Target" then
+                                        if silentTargetPart and silentTargetPart.Parent then
+                                                return silentTargetPart
+                                        end
+                                end
+                        end
+                        return oldIndexHook(t, k)
+                end))
+                if ok and old then
+                        oldIndexHook = old
+                        mouseHookInstalled = true
+                end
+        elseif not active and mouseHookInstalled and oldIndexHook
+                and type(hookmetamethod) == "function" then
+                if pcall(hookmetamethod, game, "__index", oldIndexHook) then
+                        mouseHookInstalled = false
+                        oldIndexHook = nil
+                end
+        end
+end
+
+-- ===== ติดตั้ง hooks หลัก: __namecall (ครอบคลุม :Raycast/:FindPartOnRay*/:ViewportPointToRay)
+-- + workspace.Raycast แบบเรียกตรง (บางเกมเก็บฟังก์ชันไว้เรียกเอง ไม่ผ่าน namecall)
+local oldNamecall = nil
+local namecallHooked = false
+local origRaycastFn = nil
+
+if type(hookmetamethod) ~= "function" or type(newcclosure) ~= "function"
+        or type(getnamecallmethod) ~= "function" then
+        silentAimSupported = false
+        State.SilentAim = false
+        warn("[SNYX v3.0] executor ไม่มี hookmetamethod — ปิด Silent Aim (ฟีเจอร์อื่นใช้ได้ปกติ)")
+else
+        local okInstall = pcall(function()
+                oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+                        -- ทางด่วน: ray ของสคริปต์เอง / ปิดอยู่ = ผ่านตรง ๆ (โดนเรียกทุก method call ในเกม)
+                        if internalRayActive or not saRunToken or not State.SilentAim then
+                                return oldNamecall(self, ...)
+                        end
+                        local method = getnamecallmethod()
+                        if method == "Raycast" then
+                                if saRayChannelActive() then
+                                        local origin, direction = ...
+                                        local newDir = computeRedirect(origin, direction)
+                                        if newDir then
+                                                return oldNamecall(self, origin, newDir, select(3, ...))
+                                        end
+                                end
+                        elseif method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList"
+                                or method == "FindPartOnRayWithWhitelist" then
+                                if saRayChannelActive() then
+                                        local ray = ...
+                                        if typeof(ray) == "Ray" then
+                                                local newDir = computeRedirect(ray.Origin, ray.Direction)
+                                                if newDir then
+                                                        local newRay = Ray.new(ray.Origin, newDir)
+                                                        if method == "FindPartOnRay" then
+                                                                return oldNamecall(self, newRay, select(2, ...))
+                                                        end
+                                                        local packed = table.pack(...)
+                                                        packed[1] = newRay
+                                                        return oldNamecall(self, table.unpack(packed, 1, packed.n))
+                                                end
+                                        end
+                                end
+                        elseif saCamChannelActive() and (method == "ViewportPointToRay"
+                                or method == "ScreenPointToRay") then
+                                -- กล้องสร้าง "ray ยิงจากพิกัดจอ" — ดัดทิศตรงนี้เลย (เกมเอา ray นี้ไปยิงต่อ)
+                                local okCall, ray = pcall(oldNamecall, self, ...)
+                                if okCall and typeof(ray) == "Ray" then
+                                        local newDir = computeRedirect(ray.Origin, ray.Direction)
+                                        if newDir then return Ray.new(ray.Origin, newDir) end
+                                        return ray
+                                end
+                                return oldNamecall(self, ...) -- เรียกครั้งแรกพัง = ปล่อยให้ error เดิมโผล่
+                        end
+                        return oldNamecall(self, ...)
+                end))
+                namecallHooked = true
+        end)
+        if not okInstall then
+                silentAimSupported = false
+                State.SilentAim = false
+                warn("[SNYX v3.0] ติดตั้ง __namecall hook ไม่สำเร็จ — ปิด Silent Aim")
+        end
+
+        -- ช่องทางเสริม: computeRedirect idempotent → ดัดซ้ำในชั้นที่สองได้ทิศเดิม ปลอดภัย
+        if type(hookfunction) == "function" then
+                pcall(function()
+                        origRaycastFn = hookfunction(Workspace.Raycast, function(self, origin, direction, params)
+                                local newDir = computeRedirect(origin, direction)
+                                if newDir then
+                                        return origRaycastFn(self, origin, newDir, params)
+                                end
+                                return origRaycastFn(self, origin, direction, params)
+                        end)
+                end)
+        end
+end
+
+-- ถอด hooks ครบตอนล้างสคริปต์ (รีรันได้สะอาด ไม่ทิ้ง hook ผี)
+CleanupManager:AddCustomCleanup(function()
+        saRunToken = false
+        silentTargetPlayer, silentTargetPart = nil, nil
+        if namecallHooked and oldNamecall and type(hookmetamethod) == "function" then
+                pcall(hookmetamethod, game, "__namecall", oldNamecall)
+                namecallHooked = false
+        end
+        if mouseHookInstalled and oldIndexHook and type(hookmetamethod) == "function" then
+                pcall(hookmetamethod, game, "__index", oldIndexHook)
+                mouseHookInstalled = false
+                oldIndexHook = nil
+        end
+        origRaycastFn = nil
+end)
+
+-- ===== เป้าของ silent aim: อัปเดต ~30Hz — aimbot ล็อคอยู่ = ใช้เป้าเดียวกันทันที
+local saAccumulator = 0
+local SA_REFRESH_INTERVAL = 1 / 30
+
+local function refreshSilentTarget()
+        silentTargetPlayer, silentTargetPart = nil, nil
+        if not State.SilentAim or not saRunToken or not silentAimSupported then return end
+
+        local locked = TargetService.CurrentTarget
+        local lockedPart = TargetService.TargetPart
+        if locked and lockedPart and lockedPart.Parent and isValidEnemy(locked) then
+                silentTargetPlayer = locked
+                silentTargetPart = lockedPart
+                return
+        end
+
+        local camera = getCamera()
+        if not camera then return end
+        local vp = camera.ViewportSize
+        local center = Vector2.new(vp.X * 0.5, vp.Y * 0.5)
+        local maxDist = (State.SilentAimFOV or 120) * (vp.Y / 1080)
+        local bestDist = maxDist
+        local players = Players:GetPlayers()
+        for i = 1, #players do
+                local p = players[i]
+                if isValidEnemy(p) then
+                        local part = TargetService:GetTargetPart(p.Character)
+                        if part then
+                                local sp, onScreen = camera:WorldToViewportPoint(part.Position)
+                                if onScreen and sp.Z > 0 then
+                                        local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                                        if d < bestDist then
+                                                -- เช็คกำแพงเฉพาะตัวที่กำลังจะชนะ (raycast แพง ทำให้น้อยที่สุด)
+                                                if State.SilentAimWallCheck == false
+                                                        or VisibilityService:CheckVisibility(p.Character, 1, part) then
+                                                        bestDist = d
+                                                        silentTargetPlayer = p
+                                                        silentTargetPart = part
+                                                end
+                                        end
+                                end
+                        end
+                end
+        end
+end
+
+CleanupManager:AddConn("SilentAimRefresh", RunService.Heartbeat:Connect(function(dt)
+        if not State.SilentAim then
+                if silentTargetPlayer or silentTargetPart then
+                        silentTargetPlayer, silentTargetPart = nil, nil
+                end
+                return
+        end
+        saAccumulator += dt
+        if saAccumulator >= SA_REFRESH_INTERVAL then
+                saAccumulator = 0
+                refreshSilentTarget()
+        end
+end))
+
+print(("[SNYX v3.0] profile=%s | silentAimSupported=%s | silentAim=%s | mode=%s"):format(
+        GAME_PROFILE, tostring(silentAimSupported), tostring(State.SilentAim), tostring(State.SilentAimMode)))
+-- ==========================================
+-- 9.7 MAIN CAMERA RENDER STEP
+-- ==========================================
 local flickUntil = 0
 local prevReadLook = nil
 local lastWriteLook = nil
@@ -1360,6 +1697,7 @@ CleanupManager:AddConn("RenderStep", RunService.RenderStepped:Connect(function(d
         local aimBusy = os.clock() < flickUntil or os.clock() < switchEaseUntil
         runTriggerBot(camera, aimBusy)
 end))
+
 -- ==========================================
 -- 10. UI CONSTRUCTION
 -- ==========================================
@@ -1748,3 +2086,24 @@ end)
 createToggle("Trigger Wall Check", State.TriggerWallCheck, function(v)
         State.TriggerWallCheck = v
 end)
+
+-- [v3.0] Silent Aim — กระสุนดัดเข้าเป้า กล้องไม่ขยับ (ต้อง executor ระดับ hookmetamethod
+-- เช่น Synapse ฯลฯ — executor ไม่รองรับ = 블록นี้ไม่แสดง ฟีเจอร์อื่นยังใช้ได้ปกติ)
+if silentAimSupported then
+        createToggle("Silent Aim", State.SilentAim, function(v)
+                State.SilentAim = v
+                if v then refreshSilentTarget() end
+        end)
+        -- Auto = เปิดทุกช่องทาง / กระสุนไม่ดูดในเกมไหน สลับโหมดทีละแบบ:
+        -- Raycast = ปืน hitscan ทั่วไป / CamRay = เกมสร้าง ray จากพิกัดจอ / Mouse Hit = เกมอ่านทิศจากเมาส์
+        createModeSelector("SA Mode", { "Auto", "Raycast", "CamRay", "Mouse Hit" }, 1, function(v)
+                State.SilentAimMode = v
+                -- Mouse.Hit hook แพง (โดนทุกการอ่าน property ในเกม) — ติดตั้งเฉพาะโหมดนี้จริง ๆ
+                saSetMouseHookActive(v == "Mouse Hit")
+        end)
+        createToggle("SA Wall Check", State.SilentAimWallCheck, function(v)
+                State.SilentAimWallCheck = v
+        end)
+        createSlider("SA FOV Range", 30, 400, State.SilentAimFOV, 5, function(v)
+                State.SilentAimFOV = v
+        end)
