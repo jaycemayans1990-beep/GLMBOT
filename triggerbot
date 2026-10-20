@@ -1,6 +1,6 @@
--- Luau | snyx_aimbot_v3_2.lua | Roblox executor (Synapse-style env)
+-- Luau | snyx_aimbot_v3_3.lua | Roblox executor (Synapse-style env)
 -- =====================================================================
--- SNYX ADVANCED PREDICTION AIMBOT & ESP (v3.2 — PERFORMANCE / GROUND WAR FIX)
+-- SNYX ADVANCED PREDICTION AIMBOT & ESP (v3.3 — TRIMMED BUILD)
 -- =====================================================================
 
 local Players = game:GetService("Players")
@@ -17,7 +17,7 @@ if not LocalPlayer then
         end
 end
 if not LocalPlayer then
-        warn("[SNYX v3.2] ไม่พบ LocalPlayer — รอผู้เล่นโหลดไม่สำเร็จ รันสคริปต์ใหม่อีกครั้งหลังเข้าเกม")
+        warn("[SNYX v3.3] ไม่พบ LocalPlayer — รอผู้เล่นโหลดไม่สำเร็จ รันสคริปต์ใหม่อีกครั้งหลังเข้าเกม")
         return
 end
 
@@ -90,16 +90,7 @@ local State = {
         DragSwitch = true,
         FlickSpeed = 140,
         FreeSteer = true,
-        TriggerBot = true,
-        TriggerSafeInput = true,
-        TriggerWallCheck = true,
-        SilentAim = false,
-        SilentAimMode = "Auto",
-        SilentAimWallCheck = true,
-        SilentAimFOV = 120,
         WeaponCheck = true,
-        TriggerDelay = 90,
-        TriggerAngle = 0.7,
         TargetPartMode = "Head",
         PingCompensation = false,
         DropIsMultiplier = false,
@@ -112,16 +103,6 @@ local State = {
         ESP = true,
         ESPName = false
 }
-
-local GAME_PROFILE = "default"
-do
-        local ok, info = pcall(function()
-                return game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId)
-        end)
-        local name = (ok and type(info) == "table" and type(info.Name) == "string")
-                and info.Name:lower() or ""
-        if name:find("ground war") then GAME_PROFILE = "groundwar" end
-end
 
 local function getCamera() return Workspace.CurrentCamera end
 local DEFAULT_FOV = 70
@@ -156,15 +137,7 @@ local function safeUnit(v3)
         return isFiniteVec3(unit) and unit or nil
 end
 
-local WeaponService, refreshSilentTarget, saSetMouseHookActive, saInstallHooks, saUninstallHooks, saReinstallHooks
-
-local silentAimSupported = (type(hookmetamethod) == "function")
-        and (type(newcclosure) == "function")
-        and (type(getnamecallmethod) == "function")
-if not silentAimSupported then
-        State.SilentAim = false
-        warn("[SNYX v3.2] executor ไม่มี hookmetamethod/newcclosure — ซ่อน Silent Aim")
-end
+local WeaponService
 
 local setStatusFn = nil
 local function setSnyxStatus(msg)
@@ -481,6 +454,7 @@ local function createSlider(text, min, max, default, step, callback)
                 if input.UserInputType == Enum.UserInputType.MouseButton1
                         or input.UserInputType == Enum.UserInputType.Touch then
                         dragging = true
+
                         local function update(inp)
                                 local ratio = math.clamp(
                                         (inp.Position.X - sliderBar.AbsolutePosition.X)
@@ -518,18 +492,23 @@ createModeSelector("Target Part", { "Head", "Torso", "Random" }, 1, function(v) 
 createToggle("Show FOV Circle", State.ShowFOV, function(v) State.ShowFOV = v end)
 createToggle("Team Check", State.TeamCheck, function(v) State.TeamCheck = v end)
 createToggle("Wall Check", State.WallCheck, function(v) State.WallCheck = v end)
+
 createToggle("Prediction Engine", State.Prediction, function(v) State.Prediction = v end)
 createToggle("Ping Compensation", State.PingCompensation, function(v) State.PingCompensation = v end)
+
 createToggle("Drop Value Mode: Multiplier", State.DropIsMultiplier, function(v)
         State.DropIsMultiplier = v
         WeaponService:UpdateAuto()
 end)
+
 createToggle("Auto Weapon Speed", State.AutoBulletSpeed, function(v)
         State.AutoBulletSpeed = v
         WeaponService:UpdateAuto()
 end)
+
 createToggle("ESP Wallhack", State.ESP, function(v) State.ESP = v end)
 createToggle("ESP Username", State.ESPName, function(v) State.ESPName = v end)
+
 createSlider("Manual Bullet Speed", 500, 10000, State.BulletSpeed, 100, function(v)
         State.BulletSpeed = v
         WeaponService:UpdateManual()
@@ -540,64 +519,32 @@ createSlider("Manual Gravity", 0, 500, State.BulletGravity, 10, function(v)
 end)
 createSlider("Smoothness", 0.05, 1, State.Smoothness, 0.05, function(v) State.Smoothness = v end)
 createSlider("Aimbot FOV Range", 50, 500, State.FOV, 10, function(v) State.FOV = v end)
+
 createSlider("Pred Reactivity", 0.2, 3, State.PredReactivity, 0.05, function(v)
         State.PredReactivity = v
 end)
 createSlider("Pred Max Slew (s/s)", 0.5, 10, State.PredMaxSlew, 0.5, function(v)
         State.PredMaxSlew = v
 end)
+
 createToggle("Lag Comp", State.LagComp, function(v) State.LagComp = v end)
 createSlider("Catch-Up Boost", 0, 3, State.TrackBoost, 0.05, function(v)
         State.TrackBoost = v
 end)
+
 createSlider("Snap Angle", 0, 60, State.SnapAngle, 1, function(v)
         State.SnapAngle = v
 end)
 createToggle("Drag To Switch", State.DragSwitch, function(v) State.DragSwitch = v end)
+
 createToggle("Free Steer", State.FreeSteer, function(v) State.FreeSteer = v end)
 createSlider("Flick Speed (°/s)", 60, 300, State.FlickSpeed, 5, function(v)
         State.FlickSpeed = v
 end)
-createToggle("Trigger Bot", State.TriggerBot, function(v) State.TriggerBot = v end)
-createSlider("Trigger Delay (ms)", 0, 300, State.TriggerDelay, 5, function(v)
-        State.TriggerDelay = v
-end)
-createSlider("Trigger Angle (°)", 0, 3, State.TriggerAngle, 0.1, function(v)
-        State.TriggerAngle = v
-end)
-createToggle("Trigger Safe Input", State.TriggerSafeInput, function(v)
-        State.TriggerSafeInput = v
-end)
-createToggle("Trigger Wall Check", State.TriggerWallCheck, function(v)
-        State.TriggerWallCheck = v
-end)
+
 createToggle("Weapon Check", State.WeaponCheck, function(v)
         State.WeaponCheck = v
 end)
-
-if silentAimSupported then
-        createToggle("Silent Aim", State.SilentAim, function(v)
-                State.SilentAim = v
-                if v then
-                        if saInstallHooks then pcall(saInstallHooks) end
-                        refreshSilentTarget()
-                else
-                        if saUninstallHooks then pcall(saUninstallHooks) end
-                        saSetMouseHookActive(false)
-                end
-        end)
-        createModeSelector("SA Mode", { "Auto", "Raycast", "CamRay", "Mouse Hit" }, 1, function(v)
-                State.SilentAimMode = v
-                saSetMouseHookActive(v == "Mouse Hit")
-                if saReinstallHooks then pcall(saReinstallHooks) end
-        end)
-        createToggle("SA Wall Check", State.SilentAimWallCheck, function(v)
-                State.SilentAimWallCheck = v
-        end)
-        createSlider("SA FOV Range", 30, 400, State.SilentAimFOV, 5, function(v)
-                State.SilentAimFOV = v
-        end)
-end
 
 setSnyxStatus("UI พร้อม — กำลังโหลดระบบเกม...")
 -- ==========================================
@@ -707,16 +654,6 @@ if LocalPlayer then
         CleanupManager:AddConn("CharAdded", LocalPlayer.CharacterAdded:Connect(setupCharacterWeaponListener))
 end
 
-local internalRayActive = false
-
-local function internalRaycast(origin, direction, params)
-        internalRayActive = true
-        local ok, result = pcall(Workspace.Raycast, Workspace, origin, direction, params)
-        internalRayActive = false
-        if ok then return result end
-        return nil
-end
-
 -- ==========================================
 -- 5. VISIBILITY SERVICE (Reuse RaycastParams)
 -- ==========================================
@@ -724,6 +661,7 @@ local VisibilityService = {}
 local RayParams = RaycastParams.new()
 RayParams.FilterType = Enum.RaycastFilterType.Exclude
 RayParams.IgnoreWater = true
+
 local ScratchFilter = {}
 
 function VisibilityService:CheckVisibility(targetCharacter, pierceCount, specificPart)
@@ -757,9 +695,9 @@ function VisibilityService:CheckVisibility(targetCharacter, pierceCount, specifi
 
         for i = 1, maxPierces do
                 RayParams.FilterDescendantsInstances = ScratchFilter
-                local result = internalRaycast(currentOrigin, currentDirection, RayParams)
+                local okRay, result = pcall(Workspace.Raycast, Workspace, currentOrigin, currentDirection, RayParams)
 
-                if not result then return true end
+                if not okRay or not result then return true end
 
                 local hitPart = result.Instance
                 if hitPart:IsDescendantOf(targetCharacter) then return true end
@@ -1320,7 +1258,7 @@ do
                         Filled = false, Transparency = 0.7, NumSides = 3,
                         Remove = function() end
                 }
-                setSnyxStatus("Drawing lib ไม่พบ — วง FOV ปิด")
+                setSnyxStatus("Drawing lib ไม่พบ — วง FOV ปิด (ฟีเจอร์อื่นปกติ)")
         end
 end
 FOVCircle.Thickness = 1.5
@@ -1337,518 +1275,7 @@ local function hasActiveWeapon()
         return character:FindFirstChildOfClass("Tool") ~= nil
 end
 
--- ==========================================
--- 9.5 TRIGGER BOT
--- ==========================================
-local VirtualUser
-do
-        local okVU, vu = pcall(game.GetService, game, "VirtualUser")
-        if okVU then VirtualUser = vu end
-end
-
-local TRIGGER_MIN_HOLD = 0.04
-local TRIGGER_RELEASE_GRACE = 0.07
-local TRIGGER_CYCLE_GAP = 0.12
-local TRIGGER_RAY_DIST = 2048
-local frameDtEMA = 1 / 60
-
-local triggerRayParams = RaycastParams.new()
-triggerRayParams.FilterType = Enum.RaycastFilterType.Exclude
-triggerRayParams.IgnoreWater = true
-
-local triggerState = "idle"
-local triggerPendingAt = 0
-local triggerDelayUsed = 0
-local triggerFiredAt = 0
-local triggerOffSince = nil
-local triggerIdleSince = 0
-local triggerChannel = "vu"
-local triggerHeld = false
-
-local function fireInputDown()
-        local cam = getCamera()
-        local order = (State.TriggerSafeInput ~= false) and { "vu", "m1" } or { "m1", "vu" }
-        for _, ch in ipairs(order) do
-                local ok = false
-                if ch == "vu" and cam and VirtualUser then
-                        ok = pcall(function()
-                                VirtualUser:CaptureController()
-                                VirtualUser:Button1Down(cam.ViewportSize * 0.5, cam.CFrame)
-                        end)
-                elseif ch == "m1" and type(mouse1press) == "function" then
-                        ok = pcall(mouse1press)
-                end
-                if ok then
-                        triggerChannel = ch
-                        return true
-                end
-        end
-        return false
-end
-
-local function fireInputUp()
-        local cam = getCamera()
-        if triggerChannel == "m1" and type(mouse1release) == "function" then
-                if pcall(mouse1release) then return true end
-        end
-        if cam and VirtualUser then
-                return pcall(function()
-                        VirtualUser:Button1Up(cam.ViewportSize * 0.5, cam.CFrame)
-                end)
-        end
-        return false
-end
-
-local function triggerPress()
-        if fireInputDown() then
-                triggerHeld = true
-                return true
-        end
-        return false
-end
-
-local function triggerRelease()
-        if triggerHeld then
-                fireInputUp()
-                triggerHeld = false
-        end
-end
-
-local function triggerReset()
-        triggerRelease()
-        triggerState = "idle"
-        triggerOffSince = nil
-        triggerIdleSince = os.clock()
-end
-
-CleanupManager:AddCustomCleanup(function()
-        triggerRelease()
-        triggerState = "idle"
-end)
-
-local function findTriggerTarget(camera)
-        local shooterPos = camera.CFrame.Position
-        local look = camera.CFrame.LookVector
-
-        local targetPart = TargetService.TargetPart
-        if TargetService.CurrentTarget and targetPart and targetPart.Parent then
-                local toTarget = safeUnit(targetPart.Position - shooterPos)
-                if not toTarget then return nil end
-                local errDeg = math.deg(math.acos(math.clamp(look:Dot(toTarget), -1, 1)))
-                if errDeg > (State.TriggerAngle or 0.7) then return nil end
-                if State.TriggerWallCheck ~= false and not VisibilityService:CheckVisibility(
-                        TargetService.CurrentTarget.Character, 1, targetPart) then
-                        return nil
-                end
-                return TargetService.CurrentTarget
-        end
-
-        local myChar = LocalPlayer and LocalPlayer.Character
-        local scratch = { camera }
-        if myChar then scratch[2] = myChar end
-        triggerRayParams.FilterDescendantsInstances = scratch
-        local hit = internalRaycast(shooterPos, look * TRIGGER_RAY_DIST, triggerRayParams)
-        if not hit then return nil end
-
-        local node = hit.Instance
-        while node and node ~= Workspace do
-                if node:IsA("Model") and node:FindFirstChildOfClass("Humanoid") then
-                        local player = Players:GetPlayerFromCharacter(node)
-                        if player and isValidEnemy(player) then return player end
-                        return nil
-                end
-                node = node.Parent
-        end
-        return nil
-end
-
-local function runTriggerBot(camera, aimBusy)
-        if not State.TriggerBot or not hasActiveWeapon() then
-                if triggerState ~= "idle" then triggerReset() end
-                return
-        end
-        if not triggerHeld and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-                if triggerState ~= "idle" then triggerReset() end
-                return
-        end
-
-        local now = os.clock()
-        local onTarget = findTriggerTarget(camera) ~= nil
-
-        if triggerState == "idle" then
-                if onTarget and (now - triggerIdleSince) >= TRIGGER_CYCLE_GAP then
-                        triggerState = "pending"
-                        triggerPendingAt = now
-                        local base = math.max((State.TriggerDelay or 90) / 1000, 0)
-                        triggerDelayUsed = base * (0.85 + math.random() * 0.3)
-                end
-        elseif triggerState == "pending" then
-                if not onTarget then
-                        triggerState = "idle"
-                        triggerIdleSince = now
-                elseif now - triggerPendingAt >= triggerDelayUsed and not aimBusy then
-                        if triggerPress() then
-                                triggerState = "firing"
-                                triggerFiredAt = now
-                        else
-                                triggerState = "idle"
-                                triggerIdleSince = now
-                        end
-                end
-        else
-                if onTarget then
-                        triggerOffSince = nil
-                elseif not triggerOffSince then
-                        triggerOffSince = now
-                end
-                local offLong = triggerOffSince and (now - triggerOffSince) >= TRIGGER_RELEASE_GRACE
-                local holdMin = math.max(TRIGGER_MIN_HOLD, frameDtEMA * 2.5)
-                if offLong and (now - triggerFiredAt) >= holdMin then
-                        triggerRelease()
-                        triggerState = "idle"
-                        triggerOffSince = nil
-                        triggerIdleSince = now
-                end
-        end
-end
-
--- ==========================================
--- 9.6 SILENT AIM
--- ==========================================
-local SA_ORIGIN_RADIUS = 16
-local SA_HEAD_RADIUS = 6
-local SA_MIN_RAY_DIST = 50
-local SA_MAX_RAY_DIST = 5000
-
-local silentTargetPlayer = nil
-local silentTargetPart = nil
-local saRunToken = true
-local saHooksInstalled = false
-
-local function getSilentAimPosition()
-        local part = silentTargetPart
-        if part and part.Parent and part:IsDescendantOf(Workspace) then
-                local pos = part.Position
-                if isFiniteVec3(pos) then return pos end
-        end
-        return nil
-end
-
-local SA_DIR_GATE = 0.72
-local weaponOkCache = false
-local weaponOkAt = 0
-local saVisPlayer = nil
-local saVisOk = false
-local saVisAt = 0
-
-local function computeRedirect(origin, direction)
-        if not saHooksInstalled or internalRayActive or not saRunToken or not State.SilentAim then return nil end
-        local now = os.clock()
-        if now - weaponOkAt > 0.1 then
-                weaponOkAt = now
-                weaponOkCache = hasActiveWeapon()
-        end
-        if not weaponOkCache then return nil end
-        local aimPos = getSilentAimPosition()
-        if not aimPos then return nil end
-        if not isFiniteVec3(origin) or not isFiniteVec3(direction) then return nil end
-        local mag = direction.Magnitude
-        if not (mag >= SA_MIN_RAY_DIST and mag <= SA_MAX_RAY_DIST) then return nil end
-
-        local toAim = aimPos - origin
-        local toAimUnit = safeUnit(toAim)
-        local dirUnit = safeUnit(direction)
-        if not toAimUnit or not dirUnit then return nil end
-        if toAimUnit:Dot(dirUnit) < SA_DIR_GATE then return nil end
-
-        local camera = getCamera()
-        if not camera then return nil end
-        local nearCam = (origin - camera.CFrame.Position).Magnitude <= SA_ORIGIN_RADIUS
-        if not nearCam then
-                local myChar = LocalPlayer and LocalPlayer.Character
-                local anchor = myChar and (myChar:FindFirstChild("Head") or myChar:FindFirstChild("HumanoidRootPart"))
-                if not (anchor and (origin - anchor.Position).Magnitude <= SA_HEAD_RADIUS) then
-                        return nil
-                end
-        end
-
-        if State.SilentAimWallCheck ~= false then
-                local tp = silentTargetPlayer
-                if not (tp and tp.Parent) then return nil end
-                if tp ~= saVisPlayer or now - saVisAt > 0.06 then
-                        saVisPlayer = tp
-                        saVisAt = now
-                        saVisOk = (tp.Character ~= nil)
-                                and VisibilityService:CheckVisibility(tp.Character, 1, silentTargetPart) == true
-                end
-                if not saVisOk then return nil end
-        end
-
-        return toAimUnit * mag
-end
-
-local function saRayChannelActive()
-        local mode = State.SilentAimMode
-        return mode == "Auto" or mode == "Raycast"
-end
-
-local function saCamChannelActive()
-        local mode = State.SilentAimMode
-        return mode == "Auto" or mode == "CamRay"
-end
-
-local function saMouseChannelActive()
-        local mode = State.SilentAimMode
-        return mode == "Auto" or mode == "Mouse Hit"
-end
-
-local mouseRef = nil
-if LocalPlayer then
-        local okM, m = pcall(function() return LocalPlayer:GetMouse() end)
-        if okM then mouseRef = m end
-end
-local oldIndexHook = nil
-local mouseHookInstalled = false
-
-function saSetMouseHookActive(active)
-        if not silentAimSupported or not mouseRef then return end
-        if active and not mouseHookInstalled
-                and type(hookmetamethod) == "function" and type(newcclosure) == "function" then
-                local ok, old = pcall(hookmetamethod, game, "__index", newcclosure(function(t, k)
-                        if t == mouseRef and not internalRayActive and saRunToken
-                                and State.SilentAim and saMouseChannelActive() then
-                                if k == "Hit" then
-                                        local aimPos = getSilentAimPosition()
-                                        if aimPos then
-                                                if State.SilentAimWallCheck ~= false then
-                                                        local tp = silentTargetPlayer
-                                                        if (tp and tp.Parent)
-                                                                and VisibilityService:CheckVisibility(tp.Character, 1, silentTargetPart) then
-                                                                return CFrame.new(aimPos)
-                                                        end
-                                                else
-                                                        return CFrame.new(aimPos)
-                                                end
-                                        end
-                                elseif k == "Target" then
-                                        if silentTargetPart and silentTargetPart.Parent then
-                                                return silentTargetPart
-                                        end
-                                end
-                        end
-                        return oldIndexHook(t, k)
-                end))
-                if ok and old then
-                        oldIndexHook = old
-                        mouseHookInstalled = true
-                end
-        elseif not active and mouseHookInstalled and oldIndexHook
-                and type(hookmetamethod) == "function" then
-                if pcall(hookmetamethod, game, "__index", oldIndexHook) then
-                        mouseHookInstalled = false
-                        oldIndexHook = nil
-                end
-        end
-end
-
-local namecallHooked = false
-local oldNamecall = nil
-local origRaycastFn = nil
-
-function saUninstallHooks()
-        if namecallHooked and oldNamecall and type(hookmetamethod) == "function" then
-                pcall(hookmetamethod, game, "__namecall", oldNamecall)
-        end
-        namecallHooked = false
-        if origRaycastFn and type(hookfunction) == "function" then
-                pcall(function()
-                        hookfunction(Workspace.Raycast, origRaycastFn)
-                end)
-                origRaycastFn = nil
-        end
-        saHooksInstalled = false
-end
-
-local function saCanaryTest()
-        return pcall(function()
-                local a = workspace:GetFullName()
-                local b = game:GetService("Players")
-                return a ~= nil and b ~= nil
-        end)
-end
-
-function saInstallHooks()
-        if saHooksInstalled or not saRunToken or not silentAimSupported then
-                return silentAimSupported
-        end
-        local okInstall = pcall(function()
-                oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-                        if internalRayActive or not saRunToken or not State.SilentAim then
-                                return oldNamecall(self, ...)
-                        end
-                        local method = getnamecallmethod()
-                        if method == "Raycast" then
-                                if saRayChannelActive() then
-                                        local origin, direction = ...
-                                        local newDir = computeRedirect(origin, direction)
-                                        if newDir then
-                                                return oldNamecall(self, origin, newDir, select(3, ...))
-                                        end
-                                end
-                        elseif method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList"
-                                or method == "FindPartOnRayWithWhitelist" then
-                                if saRayChannelActive() then
-                                        local ray = ...
-                                        if typeof(ray) == "Ray" then
-                                                local newDir = computeRedirect(ray.Origin, ray.Direction)
-                                                if newDir then
-                                                        local newRay = Ray.new(ray.Origin, newDir)
-                                                        if method == "FindPartOnRay" then
-                                                                return oldNamecall(self, newRay, select(2, ...))
-                                                        end
-                                                        local packed = table.pack(...)
-                                                        packed[1] = newRay
-                                                        return oldNamecall(self, table.unpack(packed, 1, packed.n))
-                                                end
-                                        end
-                                end
-                        elseif saCamChannelActive() and (method == "ViewportPointToRay"
-                                or method == "ScreenPointToRay") then
-                                local okCall, ray = pcall(oldNamecall, self, ...)
-                                if okCall and typeof(ray) == "Ray" then
-                                        local newDir = computeRedirect(ray.Origin, ray.Direction)
-                                        if newDir then return Ray.new(ray.Origin, newDir) end
-                                        return ray
-                                end
-                                return oldNamecall(self, ...)
-                        end
-                        return oldNamecall(self, ...)
-                end))
-                namecallHooked = true
-        end)
-
-        if okInstall and type(hookfunction) == "function" and State.SilentAimMode == "Raycast" then
-                pcall(function()
-                        origRaycastFn = hookfunction(Workspace.Raycast, function(self, origin, direction, params)
-                                if State.SilentAimMode ~= "Raycast" then
-                                        return origRaycastFn(self, origin, direction, params)
-                                end
-                                local newDir = computeRedirect(origin, direction)
-                                if newDir then
-                                        return origRaycastFn(self, origin, newDir, params)
-                                end
-                                return origRaycastFn(self, origin, direction, params)
-                        end)
-                end)
-        end
-
-        if not okInstall or not saCanaryTest() then
-                saUninstallHooks()
-                silentAimSupported = false
-                State.SilentAim = false
-                setSnyxStatus("Silent Aim ปิดให้อัตโนมัติ — hook ใช้งานไม่ได้")
-                return false
-        end
-        saHooksInstalled = true
-        setSnyxStatus("Silent Aim hook พร้อม (" .. tostring(State.SilentAimMode) .. ")")
-        return true
-end
-
-function saReinstallHooks()
-        if not silentAimSupported or not saRunToken or not State.SilentAim then return false end
-        saUninstallHooks()
-        return saInstallHooks()
-end
-
-CleanupManager:AddCustomCleanup(function()
-        saRunToken = false
-        silentTargetPlayer, silentTargetPart = nil, nil
-        saUninstallHooks()
-        if mouseHookInstalled and oldIndexHook and type(hookmetamethod) == "function" then
-                pcall(hookmetamethod, game, "__index", oldIndexHook)
-                mouseHookInstalled = false
-                oldIndexHook = nil
-        end
-        origRaycastFn = nil
-end)
-
-local saAccumulator = 0
-local SA_REFRESH_INTERVAL = 1 / 30
-
-function refreshSilentTarget()
-        silentTargetPlayer, silentTargetPart = nil, nil
-        saVisPlayer, saVisOk = nil, false
-        if not State.SilentAim or not saRunToken or not silentAimSupported then return end
-
-        local locked = TargetService.CurrentTarget
-        local lockedPart = TargetService.TargetPart
-        if locked and lockedPart and lockedPart.Parent and isValidEnemy(locked) then
-                silentTargetPlayer = locked
-                silentTargetPart = lockedPart
-                saVisPlayer = locked
-                saVisAt = os.clock()
-                if State.SilentAimWallCheck == false then
-                        saVisOk = true
-                elseif locked.Character then
-                        saVisOk = VisibilityService:CheckVisibility(locked.Character, 1, lockedPart) == true
-                else
-                        saVisOk = false
-                end
-                return
-        end
-
-        local camera = getCamera()
-        if not camera then return end
-        local vp = camera.ViewportSize
-        local center = Vector2.new(vp.X * 0.5, vp.Y * 0.5)
-        local maxDist = (State.SilentAimFOV or 120) * (vp.Y / 1080)
-        local bestDist = maxDist
-        local players = Players:GetPlayers()
-        for i = 1, #players do
-                local p = players[i]
-                if isValidEnemy(p) then
-                        local part = TargetService:GetTargetPart(p.Character)
-                        if part then
-                                local sp, onScreen = camera:WorldToViewportPoint(part.Position)
-                                if onScreen and sp.Z > 0 then
-                                        local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                                        if d < bestDist then
-                                                if State.SilentAimWallCheck == false
-                                                        or VisibilityService:CheckVisibility(p.Character, 1, part) then
-                                                        bestDist = d
-                                                        silentTargetPlayer = p
-                                                        silentTargetPart = part
-                                                        saVisPlayer = p
-                                                        saVisAt = os.clock()
-                                                        saVisOk = true
-                                                end
-                                        end
-                                end
-                        end
-                end
-        end
-end
-
-CleanupManager:AddConn("SilentAimRefresh", RunService.Heartbeat:Connect(function(dt)
-        if not State.SilentAim then
-                if silentTargetPlayer or silentTargetPart then
-                        silentTargetPlayer, silentTargetPart = nil, nil
-                end
-                return
-        end
-        saAccumulator += dt
-        if saAccumulator >= SA_REFRESH_INTERVAL then
-                saAccumulator = 0
-                refreshSilentTarget()
-        end
-end))
-
-if State.SilentAim and silentAimSupported then
-        pcall(saInstallHooks)
-end
-
-print(("[SNYX v3.2] profile=%s | silentAimSupported=%s | silentAim=%s | mode=%s"):format(
-        GAME_PROFILE, tostring(silentAimSupported), tostring(State.SilentAim), tostring(State.SilentAimMode)))
+print("[SNYX v3.3] โหลดสำเร็จ — aimbot + ESP (ไม่มี hook / ไม่มี input สังเคราะห์)")
 
 local flickUntil = 0
 local prevReadLook = nil
@@ -1874,7 +1301,6 @@ CleanupManager:AddConn("RenderStep", RunService.RenderStepped:Connect(function(d
 
         local userLook = camera.CFrame.LookVector
         local dtSafe = math.max(deltaTime, 1e-4)
-        frameDtEMA += (dtSafe - frameDtEMA) * 0.08
         local userDps = math.huge
         if prevReadLook then
                 local uDot = math.clamp(userLook:Dot(prevReadLook), -1, 1)
@@ -1921,7 +1347,6 @@ CleanupManager:AddConn("RenderStep", RunService.RenderStepped:Connect(function(d
                 steerInfluence = 1
                 steerHoldStart = nil
                 prevAimKey = nil
-                runTriggerBot(camera, false)
                 return
         end
 
@@ -1935,7 +1360,6 @@ CleanupManager:AddConn("RenderStep", RunService.RenderStepped:Connect(function(d
                 steerHoldStart = nil
                 prevErrDeg = nil
                 prevAimKey = nil
-                triggerReset()
                 return
         end
 
@@ -2015,7 +1439,6 @@ CleanupManager:AddConn("RenderStep", RunService.RenderStepped:Connect(function(d
                                         TargetService:ReleaseTarget()
                                         flickUntil = os.clock() + FLICK_HOLD
                                         prevAimKey = nil
-                                        triggerReset()
                                         return
                                 end
                         else
@@ -2038,17 +1461,12 @@ CleanupManager:AddConn("RenderStep", RunService.RenderStepped:Connect(function(d
                 end
         end
 
-        local aimBusy = os.clock() < flickUntil or os.clock() < switchEaseUntil
-        runTriggerBot(camera, aimBusy)
 end))
 
-if State.SilentAim then
-        setSnyxStatus("โหลดครบ (" .. GAME_PROFILE .. ") — Silent Aim: " .. tostring(State.SilentAimMode))
-elseif GAME_PROFILE == "groundwar" then
-        setSnyxStatus("โหลดครบ (Ground War) — Silent Aim ปิดไว้ กดเปิดในเมนูเมื่อต้องการ")
-else
-        setSnyxStatus("โหลดครบทุกระบบ — พร้อมใช้")
-end
+-- ==========================================
+-- 11. LOAD REPORT & FPS METER
+-- ==========================================
+setSnyxStatus("โหลดครบทุกระบบ — พร้อมใช้")
 
 do
         local fpsFrames, fpsAccum = 0, 0
@@ -2059,10 +1477,8 @@ do
                         local fps = math.floor(fpsFrames / fpsAccum + 0.5)
                         fpsFrames, fpsAccum = 0, 0
                         if StatusLabel then
-                                local saText = State.SilentAim and (" | SA:" .. tostring(State.SilentAimMode)) or " | SA:off"
-                                StatusLabel.Text = ("FPS " .. fps .. saText)
+                                StatusLabel.Text = ("FPS " .. fps)
                         end
                 end
         end))
 end
-        
