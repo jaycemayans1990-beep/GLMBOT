@@ -1,6 +1,6 @@
--- Luau | snyx_aimbot_v3_3.lua | Roblox executor (Synapse-style env)
+-- Luau | snyx_aimbot_v3_4.lua | Roblox executor (Synapse-style env)
 -- =====================================================================
--- SNYX ADVANCED PREDICTION AIMBOT & ESP (v3.3 — TRIMMED BUILD)
+-- SNYX ADVANCED PREDICTION AIMBOT & ESP (v3.4 — SELF-HEAL BUILD)
 -- =====================================================================
 
 local Players = game:GetService("Players")
@@ -17,7 +17,7 @@ if not LocalPlayer then
         end
 end
 if not LocalPlayer then
-        warn("[SNYX v3.3] ไม่พบ LocalPlayer — รอผู้เล่นโหลดไม่สำเร็จ รันสคริปต์ใหม่อีกครั้งหลังเข้าเกม")
+        warn("[SNYX v3.4] ไม่พบ LocalPlayer — รอผู้เล่นโหลดไม่สำเร็จ รันสคริปต์ใหม่อีกครั้งหลังเข้าเกม")
         return
 end
 
@@ -88,9 +88,9 @@ local State = {
         LagComp = true,
         SnapAngle = 0,
         DragSwitch = true,
-        FlickSpeed = 120,
+        FlickSpeed = 90,
         FreeSteer = true,
-        WeaponCheck = true,
+        WeaponCheck = false,
         TargetPartMode = "Head",
         PingCompensation = false,
         DropIsMultiplier = false,
@@ -98,7 +98,7 @@ local State = {
         BulletSpeed = 5000,
         BulletGravity = workspace.Gravity,
         Smoothness = 0.8,
-        FOV = 150,
+        FOV = 100,
         ShowFOV = false,
         ESP = true,
         ESPName = false
@@ -138,6 +138,7 @@ local function safeUnit(v3)
 end
 
 local WeaponService
+local setStickyStatus
 
 local setStatusFn = nil
 local function setSnyxStatus(msg)
@@ -739,8 +740,17 @@ local function getComponents(player)
                 PlayerCache[player] = entry
         end
 
+        if entry.Humanoid and entry.Humanoid.Parent ~= char then
+                entry.Humanoid = nil
+        end
         if not entry.Humanoid then
                 entry.Humanoid = char:FindFirstChildOfClass("Humanoid")
+        end
+        if entry.Root and entry.Root.Parent ~= char then
+                entry.Root = nil
+        end
+        if not entry.Root then
+                entry.Root = char:FindFirstChild("HumanoidRootPart")
         end
         return entry
 end
@@ -1107,6 +1117,21 @@ local ESPService = {
         OUTLINE_OBSTRUCTED = Color3.fromRGB(100, 0, 0)
 }
 
+local ESPRegistry = setmetatable({}, { __mode = "k" })
+
+local function destroyEntryVisuals(entry)
+        if not entry then return end
+        if entry.Highlight then
+                pcall(entry.Highlight.Destroy, entry.Highlight)
+                entry.Highlight = nil
+        end
+        if entry.NameTag then
+                pcall(entry.NameTag.Destroy, entry.NameTag)
+                entry.NameTag = nil
+        end
+        entry.ShownVisible = nil
+end
+
 function ESPService:ClearAll()
         for _, player in ipairs(Players:GetPlayers()) do
                 local char = player.Character
@@ -1122,6 +1147,7 @@ end
 CleanupManager:AddCustomCleanup(function() ESPService:ClearAll() end)
 
 CleanupManager:AddConn("PlayerRemovingESP", Players.PlayerRemoving:Connect(function(player)
+        destroyEntryVisuals(ESPService.Cache[player])
         ESPService.Cache[player] = nil
 end))
 
@@ -1146,6 +1172,7 @@ local function buildNameTag(char, head, text)
         textLabel.Parent = nameTag
 
         nameTag.Parent = char
+        ESPRegistry[nameTag] = true
         return nameTag
 end
 
@@ -1157,11 +1184,14 @@ function ESPService:ProcessESP()
                 local player = players[i]
                 if player ~= LocalPlayer then
                         local char = player.Character
+
                         if not char then
+                                destroyEntryVisuals(self.Cache[player])
                                 self.Cache[player] = nil
                         else
                                 local entry = self.Cache[player]
                                 if not entry or entry.Character ~= char then
+                                        destroyEntryVisuals(entry)
                                         entry = {
                                                 Character = char,
                                                 Visible = false,
@@ -1188,11 +1218,13 @@ function ESPService:ProcessESP()
                                         if State.ESP then
                                                 local hl = entry.Highlight
                                                 if not hl or hl.Parent ~= char then
+                                                        if hl then pcall(hl.Destroy, hl) end
                                                         hl = Instance.new("Highlight")
                                                         hl.Name = "ESP_Highlight"
                                                         hl.FillTransparency = 0.25
                                                         hl.Parent = char
                                                         entry.Highlight = hl
+                                                        ESPRegistry[hl] = true
                                                         entry.ShownVisible = nil
                                                 end
                                                 if entry.ShownVisible ~= entry.Visible then
@@ -1235,14 +1267,65 @@ end
 
 local espAccumulator = 0
 local ESP_INTERVAL = 1 / 30
-CleanupManager:AddConn("ESP_Heartbeat", RunService.Heartbeat:Connect(function(dt)
-        if not State.ESP and not State.ESPName then return end
-        espAccumulator += dt
-        if espAccumulator >= ESP_INTERVAL then
-                espAccumulator = 0
-                ESPService:ProcessESP()
+local lastEspTick = os.clock()
+local espErrStreak = 0
+local espProcessFn = function() ESPService:ProcessESP() end
+local traceFn = (type(debug) == "table" and type(debug.traceback) == "function")
+        and debug.traceback or function(e) return tostring(e) end
+
+local function connectESP()
+        CleanupManager:AddConn("ESP_Heartbeat", RunService.Heartbeat:Connect(function(dt)
+                lastEspTick = os.clock()
+                if not State.ESP and not State.ESPName then return end
+                espAccumulator += dt
+                if espAccumulator >= ESP_INTERVAL then
+                        espAccumulator = 0
+                        local ok, err = xpcall(espProcessFn, traceFn)
+                        if ok then
+                                espErrStreak = 0
+                        else
+                                espErrStreak += 1
+                                if espErrStreak == 5 then
+                                        warn("[SNYX v3.4] ESP tick error: " .. tostring(err))
+                                        if setStickyStatus then
+                                                setStickyStatus("ESP error: " .. tostring(err):sub(1, 40))
+                                        end
+                                end
+                        end
+                end
+        end))
+end
+connectESP()
+
+task.spawn(function()
+        while getgenv().SnyX_Cleanup == CleanupManager and task.wait(5) do
+                local owned
+                for _, entry in pairs(ESPService.Cache) do
+                        if entry.Highlight or entry.NameTag then
+                                owned = owned or {}
+                                if entry.Highlight then owned[entry.Highlight] = true end
+                                if entry.NameTag then owned[entry.NameTag] = true end
+                        end
+                end
+                for inst in pairs(ESPRegistry) do
+                        if inst.Parent and not (owned and owned[inst]) then
+                                ESPRegistry[inst] = nil
+                                pcall(inst.Destroy, inst)
+                        end
+                end
+                for _, player in ipairs(Players:GetPlayers()) do
+                        local char = player.Character
+                        if char then
+                                for _, child in ipairs(char:GetChildren()) do
+                                        if (child.Name == "ESP_Highlight" or child.Name == "ESP_NameTag")
+                                                and not (owned and owned[child]) then
+                                                pcall(child.Destroy, child)
+                                        end
+                                end
+                        end
+                end
         end
-end))
+end)
 -- ==========================================
 -- 9. MAIN CAMERA ENGINE
 -- ==========================================
@@ -1275,7 +1358,7 @@ local function hasActiveWeapon()
         return character:FindFirstChildOfClass("Tool") ~= nil
 end
 
-print("[SNYX v3.3] โหลดสำเร็จ — aimbot + ESP (ไม่มี hook / ไม่มี input สังเคราะห์)")
+print("[SNYX v3.4] โหลดสำเร็จ — aimbot + ESP + self-heal watchdog (ไม่มี hook / ไม่มี input สังเคราะห์)")
 
 local flickUntil = 0
 local prevReadLook = nil
@@ -1295,7 +1378,9 @@ local switchEaseUntil = 0
 local prevAimKey = nil
 local prevErrDeg = nil
 
-CleanupManager:AddConn("RenderStep", RunService.RenderStepped:Connect(function(deltaTime)
+local lastRenderTick = os.clock()
+local renderErrStreak = 0
+local function renderTick(deltaTime)
         local camera = getCamera()
         if not camera then return end
 
@@ -1461,12 +1546,59 @@ CleanupManager:AddConn("RenderStep", RunService.RenderStepped:Connect(function(d
                 end
         end
 
-end))
+end
+
+local function connectRenderLoop()
+        CleanupManager:AddConn("RenderStep", RunService.RenderStepped:Connect(function(deltaTime)
+                lastRenderTick = os.clock()
+                local ok, err = xpcall(renderTick, traceFn, deltaTime)
+                if ok then
+                        renderErrStreak = 0
+                else
+                        renderErrStreak += 1
+                        if renderErrStreak == 10 then
+                                warn("[SNYX v3.4] aim loop error: " .. tostring(err))
+                                if setStickyStatus then
+                                        setStickyStatus("aim error: " .. tostring(err):sub(1, 40))
+                                end
+                        end
+                end
+        end))
+end
+connectRenderLoop()
 
 -- ==========================================
--- 11. LOAD REPORT & FPS METER
+-- 11. LOAD REPORT & WATCHDOG
 -- ==========================================
 setSnyxStatus("โหลดครบทุกระบบ — พร้อมใช้")
+
+local stickyMsg, stickyUntil = nil, 0
+setStickyStatus = function(msg)
+        stickyMsg = tostring(msg)
+        stickyUntil = os.clock() + 6
+        warn("[SNYX v3.4] " .. stickyMsg)
+        if StatusLabel then StatusLabel.Text = stickyMsg end
+end
+
+do
+        local watchdogAccum = 0
+        CleanupManager:AddConn("Watchdog", RunService.Heartbeat:Connect(function(dt)
+                watchdogAccum += dt
+                if watchdogAccum < 1 then return end
+                watchdogAccum = 0
+                local now = os.clock()
+                if State.Aimbot and now - lastRenderTick > 2 then
+                        lastRenderTick = now
+                        connectRenderLoop()
+                        setStickyStatus("watchdog: ฟื้น aim loop กลับมาแล้ว")
+                end
+                if (State.ESP or State.ESPName) and now - lastEspTick > 2 then
+                        lastEspTick = now
+                        connectESP()
+                        setStickyStatus("watchdog: ฟื้น ESP loop กลับมาแล้ว")
+                end
+        end))
+end
 
 do
         local fpsFrames, fpsAccum = 0, 0
@@ -1477,7 +1609,8 @@ do
                         local fps = math.floor(fpsFrames / fpsAccum + 0.5)
                         fpsFrames, fpsAccum = 0, 0
                         if StatusLabel then
-                                StatusLabel.Text = ("FPS " .. fps)
+                                StatusLabel.Text = (stickyMsg and os.clock() < stickyUntil)
+                                        and stickyMsg or ("FPS " .. fps)
                         end
                 end
         end))
