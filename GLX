@@ -1,6 +1,6 @@
--- Luau | glx_aimbot_v3_4.lua | Roblox executor (Synapse-style env)
+-- Luau | glx_aimbot_v3_5.lua | Roblox executor (Synapse-style env)
 -- =====================================================================
--- GLX ADVANCED PREDICTION AIMBOT & ESP (v3.4 — SELF-HEAL BUILD)
+-- GLX ADVANCED PREDICTION AIMBOT & ESP (v3.5 — SMOOTH GLIDE BUILD)
 -- =====================================================================
 
 local Players = game:GetService("Players")
@@ -17,7 +17,7 @@ if not LocalPlayer then
         end
 end
 if not LocalPlayer then
-        warn("[GLX v3.4] ไม่พบ LocalPlayer — รอผู้เล่นโหลดไม่สำเร็จ รันสคริปต์ใหม่อีกครั้งหลังเข้าเกม")
+        warn("[GLX v3.5] ไม่พบ LocalPlayer — รอผู้เล่นโหลดไม่สำเร็จ รันสคริปต์ใหม่อีกครั้งหลังเข้าเกม")
         return
 end
 
@@ -90,9 +90,8 @@ local State = {
         PredMaxSlew = 3.0,
         TrackBoost = 1.5,
         LagComp = true,
-        SnapAngle = 0,
         DragSwitch = true,
-        FlickSpeed = 80,
+        FlickSpeed = 90,
         FreeSteer = true,
         WeaponCheck = false,
         TargetPartMode = "Head",
@@ -101,11 +100,11 @@ local State = {
         AutoBulletSpeed = true,
         BulletSpeed = 5000,
         BulletGravity = workspace.Gravity,
-        Smoothness = 1,
+        Smoothness = 0.8,
         FOV = 100,
         ShowFOV = false,
         ESP = true,
-        ESPName = true
+        ESPName = false
 }
 
 local function getCamera() return Workspace.CurrentCamera end
@@ -183,7 +182,7 @@ do
         end
 end
 if not ScreenGui.Parent then
-        warn("[GLX v3.4] ใส่ UI ลงเกมไม่ได้ (CoreGui/PlayerGui ถูกปิด) — UI จะไม่แสดง")
+        warn("[GLX v3.5] ใส่ UI ลงเกมไม่ได้ (CoreGui/PlayerGui ถูกปิด) — UI จะไม่แสดง")
 end
 CleanupManager:AddInstance("MainUI", ScreenGui)
 
@@ -530,7 +529,7 @@ createSlider("Manual Gravity", 0, 500, State.BulletGravity, 10, function(v)
         State.BulletGravity = v
         WeaponService:UpdateManual()
 end)
-createSlider("Smoothness", 0.05, 1, State.Smoothness, 0.05, function(v) State.Smoothness = v end)
+createSlider("Aim Speed", 0.05, 1, State.Smoothness, 0.05, function(v) State.Smoothness = v end)
 createSlider("Aimbot FOV Range", 50, 500, State.FOV, 10, function(v) State.FOV = v end)
 
 createSlider("Pred Reactivity", 0.2, 3, State.PredReactivity, 0.05, function(v)
@@ -545,9 +544,6 @@ createSlider("Catch-Up Boost", 0, 3, State.TrackBoost, 0.05, function(v)
         State.TrackBoost = v
 end)
 
-createSlider("Snap Angle", 0, 60, State.SnapAngle, 1, function(v)
-        State.SnapAngle = v
-end)
 createToggle("Drag To Switch", State.DragSwitch, function(v) State.DragSwitch = v end)
 
 createToggle("Free Steer", State.FreeSteer, function(v) State.FreeSteer = v end)
@@ -1298,7 +1294,7 @@ local function connectESP()
                         else
                                 espErrStreak += 1
                                 if espErrStreak == 5 then
-                                        warn("[GLX v3.4] ESP tick error: " .. tostring(err))
+                                        warn("[GLX v3.5] ESP tick error: " .. tostring(err))
                                         if setStickyStatus then
                                                 setStickyStatus("ESP error: " .. tostring(err):sub(1, 40))
                                         end
@@ -1370,7 +1366,7 @@ local function hasActiveWeapon()
         return character:FindFirstChildOfClass("Tool") ~= nil
 end
 
-print("[GLX v3.4] โหลดสำเร็จ — aimbot + ESP + self-heal watchdog (ไม่มี hook / ไม่มี input สังเคราะห์)")
+print("[GLX v3.5] โหลดสำเร็จ — aimbot + ESP + self-heal watchdog (ไม่มี hook / ไม่มี input สังเคราะห์)")
 
 local flickUntil = 0
 local prevReadLook = nil
@@ -1380,14 +1376,9 @@ local STEER_DPS = 45
 local STEER_HOLD = 0.22
 local STEER_MIN_INFLUENCE = 0.15
 local STEER_TAU = 0.07
-local SWITCH_EASE_SPEED = 30
-local SWITCH_EASE_TIME = 0.15
-local SWITCH_EASE_MIN_ERR = 3
 
 local steerInfluence = 1
 local steerHoldStart = nil
-local switchEaseUntil = 0
-local prevAimKey = nil
 local prevErrDeg = nil
 
 local lastRenderTick = os.clock()
@@ -1443,7 +1434,6 @@ local function renderTick(deltaTime)
                 prevErrDeg = nil
                 steerInfluence = 1
                 steerHoldStart = nil
-                prevAimKey = nil
                 return
         end
 
@@ -1456,7 +1446,6 @@ local function renderTick(deltaTime)
                 steerInfluence = 1
                 steerHoldStart = nil
                 prevErrDeg = nil
-                prevAimKey = nil
                 return
         end
 
@@ -1489,42 +1478,23 @@ local function renderTick(deltaTime)
                 TargetService:AcquireTarget(camera, screenCenter, scaledFOV)
         end
 
-        if TargetService.CurrentTarget then
-                if TargetService.CurrentTarget ~= prevAimKey then
-                        switchEaseUntil = os.clock() + SWITCH_EASE_TIME
-                end
-                prevAimKey = TargetService.CurrentTarget
-        else
-                prevAimKey = nil
-        end
-
         local targetPart = TargetService.TargetPart
         if TargetService.CurrentTarget and targetPart and targetPart.Parent then
                 local shooterPos = camera.CFrame.Position
                 local zoomScale = zoomSmoothed
-                local baseSpeed = math.clamp(State.Smoothness * 120 * zoomScale, 6, 440)
-                local leadTau = State.LagComp and math.min(1 / baseSpeed, 0.15) or 0
+                local baseRate = (10 + State.Smoothness * 30) * zoomScale
+                local leadTau = State.LagComp and math.min(1 / baseRate, 0.15) or 0
                 local targetPos = getPredictedPosition(targetPart, shooterPos, deltaTime, leadTau, zoomScale)
 
                 local desiredDirection = safeUnit(targetPos - shooterPos)
                 if desiredDirection then
                         local dot = math.clamp(camera.CFrame.LookVector:Dot(desiredDirection), -1, 1)
                         local errDeg = math.deg(math.acos(dot))
-                        local snapAngle = State.SnapAngle or 20
                         local errScaled = errDeg * zoomScale
-                        local boostC = State.TrackBoost or 1.5
-                        local boost = 1 + math.min(errScaled / 10, 2) * boostC
-                        local effSpeed = math.min(baseSpeed * boost, 560)
+                        local gain = State.TrackBoost or 1.5
+                        local effSpeed = math.min(baseRate + errScaled * gain, 70)
                         local sdt = math.min(deltaTime, 1 / 30)
-                        local normalAlpha = 1 - math.exp(-effSpeed * sdt)
-                        local alpha = normalAlpha
-                        if snapAngle > 0 then
-                                local snapBlend = math.clamp((errScaled - snapAngle * 0.35) / (snapAngle * 0.5), 0, 1)
-                                alpha = normalAlpha + (1 - normalAlpha) * snapBlend * math.sqrt(snapBlend)
-                        end
-                        if os.clock() < switchEaseUntil and errScaled > SWITCH_EASE_MIN_ERR then
-                                alpha = math.min(alpha, 1 - math.exp(-SWITCH_EASE_SPEED * sdt))
-                        end
+                        local alpha = 1 - math.exp(-effSpeed * sdt)
 
                         local steering = State.FreeSteer and userDps > STEER_DPS
                                 and prevErrDeg ~= nil and errDeg > prevErrDeg + 0.05
@@ -1535,7 +1505,6 @@ local function renderTick(deltaTime)
                                         switchCooldownUntil = os.clock() + SWITCH_COOLDOWN
                                         TargetService:ReleaseTarget()
                                         flickUntil = os.clock() + FLICK_HOLD
-                                        prevAimKey = nil
                                         return
                                 end
                         else
@@ -1569,7 +1538,7 @@ local function connectRenderLoop()
                 else
                         renderErrStreak += 1
                         if renderErrStreak == 10 then
-                                warn("[GLX v3.4] aim loop error: " .. tostring(err))
+                                warn("[GLX v3.5] aim loop error: " .. tostring(err))
                                 if setStickyStatus then
                                         setStickyStatus("aim error: " .. tostring(err):sub(1, 40))
                                 end
@@ -1588,7 +1557,7 @@ local stickyMsg, stickyUntil = nil, 0
 setStickyStatus = function(msg)
         stickyMsg = tostring(msg)
         stickyUntil = os.clock() + 6
-        warn("[GLX v3.4] " .. stickyMsg)
+        warn("[GLX v3.5] " .. stickyMsg)
         if StatusLabel then StatusLabel.Text = stickyMsg end
 end
 
