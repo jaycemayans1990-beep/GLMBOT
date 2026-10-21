@@ -143,7 +143,7 @@ local function safeUnit(v3)
 end
 
 -- ==========================================
--- 3.5 FORWARD DECLARATIONS + LOAD STATUS (v3.1)
+-- 3.5 FORWARD DECLARATIONS + LOAD STATUS
 -- ==========================================
 local WeaponService
 local setStickyStatus
@@ -189,12 +189,12 @@ CleanupManager:AddInstance("MainUI", ScreenGui)
 
 local ToggleBtn = Instance.new("TextButton")
 ToggleBtn.Size = UDim2.new(0, 45, 0, 45)
-ToggleBtn.Position = UDim2.new(0.03, 0, 0.2, 0)
+ToggleBtn.Position = UDim2.new(0, 28, 0, 130)
 ToggleBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 ToggleBtn.Text = "Glx"
-ToggleBtn.TextColor3 = Color3.fromRGB(180, 0, 255)
-ToggleBtn.Font = Enum.Font.SourceSansBold
-ToggleBtn.TextSize = 14
+ToggleBtn.TextColor3 = Color3.fromRGB(0, 255, 153)
+ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.TextSize = 18
 ToggleBtn.Active = true
 ToggleBtn.Parent = ScreenGui
 
@@ -203,13 +203,13 @@ btnCorner.CornerRadius = UDim.new(0, 8)
 btnCorner.Parent = ToggleBtn
 
 local btnStroke = Instance.new("UIStroke")
-btnStroke.Color = Color3.fromRGB(180, 0, 255)
-btnStroke.Thickness = 1.5
+btnStroke.Color = Color3.fromRGB(0, 255, 153)
+btnStroke.Thickness = 2
 btnStroke.Parent = ToggleBtn
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.new(0, 290, 0, 400)
-MainFrame.Position = UDim2.new(0.15, 0, 0.25, 0)
+MainFrame.Position = UDim2.new(0, 220, 0, 140)
 MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 MainFrame.Active = true
 MainFrame.Visible = false
@@ -252,8 +252,8 @@ local function enableDrag(handle, target)
                         or input.UserInputType == Enum.UserInputType.Touch) then
                         local delta = input.Position - dragStart
                         target.Position = UDim2.new(
-                                startPos.X.Scale, startPos.X.Offset + delta.X,
-                                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                                startPos.X.Scale, math.floor(startPos.X.Offset + delta.X + 0.5),
+                                startPos.Y.Scale, math.floor(startPos.Y.Offset + delta.Y + 0.5)
                         )
                 end
         end))
@@ -262,10 +262,11 @@ end
 local TitleBar = Instance.new("TextLabel")
 TitleBar.Size = UDim2.new(1, 0, 0, 35)
 TitleBar.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-TitleBar.Text = "  GLX ADVANCED SYSTEM"
+TitleBar.RichText = true
+TitleBar.Text = "  <font color=\"#00FF99\">GLX</font> ADVANCED SYSTEM"
 TitleBar.TextColor3 = Color3.fromRGB(255, 255, 255)
-TitleBar.Font = Enum.Font.SourceSansBold
-TitleBar.TextSize = 14
+TitleBar.Font = Enum.Font.GothamBold
+TitleBar.TextSize = 15
 TitleBar.TextXAlignment = Enum.TextXAlignment.Left
 TitleBar.Parent = MainFrame
 
@@ -278,9 +279,9 @@ StatusLabel.Size = UDim2.new(1, -12, 0, 16)
 StatusLabel.Position = UDim2.new(0, 6, 1, -20)
 StatusLabel.BackgroundTransparency = 1
 StatusLabel.Text = "กำลังโหลด..."
-StatusLabel.TextColor3 = Color3.fromRGB(140, 255, 140)
+StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 153)
 StatusLabel.Font = Enum.Font.SourceSans
-StatusLabel.TextSize = 11
+StatusLabel.TextSize = 12
 StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 StatusLabel.TextTruncate = Enum.TextTruncate.AtEnd
 StatusLabel.Parent = MainFrame
@@ -384,7 +385,7 @@ local function createModeSelector(text, modesArray, initialIndex, callback)
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.new(0, 80, 0, 20)
         btn.Position = UDim2.new(1, -86, 0.5, -10)
-        btn.BackgroundColor3 = Color3.fromRGB(50, 100, 150)
+        btn.BackgroundColor3 = Color3.fromRGB(0, 115, 95)
         btn.Text = modesArray[initialIndex]
         btn.TextColor3 = Color3.fromRGB(255, 255, 255)
         btn.Font = Enum.Font.SourceSansBold
@@ -453,7 +454,7 @@ local function createSlider(text, min, max, default, step, callback)
         local sliderFill = Instance.new("Frame")
         local initialRatio = math.clamp((default - min) / (max - min), 0, 1)
         sliderFill.Size = UDim2.new(initialRatio, 0, 1, 0)
-        sliderFill.BackgroundColor3 = Color3.fromRGB(180, 0, 255)
+        sliderFill.BackgroundColor3 = Color3.fromRGB(0, 255, 153)
         sliderFill.BorderSizePixel = 0
         sliderFill.Parent = sliderBar
 
@@ -888,7 +889,6 @@ function TargetService:AcquireTarget(camera, screenCenter, scaledFOV)
                 self.TargetPart = bestPart
         end
 end
-
 -- ==========================================
 -- 7. ADVANCED PREDICTION ENGINE
 -- ==========================================
