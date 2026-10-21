@@ -92,7 +92,7 @@ local State = {
         LagComp = true,
         SnapAngle = 0,
         DragSwitch = true,
-        FlickSpeed = 90,
+        FlickSpeed = 80,
         FreeSteer = true,
         WeaponCheck = false,
         TargetPartMode = "Head",
@@ -105,7 +105,7 @@ local State = {
         FOV = 100,
         ShowFOV = false,
         ESP = true,
-        ESPName = false
+        ESPName = true
 }
 
 local function getCamera() return Workspace.CurrentCamera end
