@@ -1,6 +1,6 @@
--- Luau | glx_aimbot_v3_5.lua | Roblox executor (Synapse-style env)
+-- Luau | glx_aimbot_v3_6.lua | Roblox executor (Synapse-style env)
 -- =====================================================================
--- GLX ADVANCED PREDICTION AIMBOT & ESP (v3.5 — SMOOTH GLIDE BUILD)
+-- GLX ADVANCED PREDICTION AIMBOT & ESP (v3.6 — SMOOTH GLIDE BUILD)
 -- =====================================================================
 
 local Players = game:GetService("Players")
@@ -17,7 +17,7 @@ if not LocalPlayer then
         end
 end
 if not LocalPlayer then
-        warn("[GLX v3.5] ไม่พบ LocalPlayer — รอผู้เล่นโหลดไม่สำเร็จ รันสคริปต์ใหม่อีกครั้งหลังเข้าเกม")
+        warn("[GLX v3.6] ไม่พบ LocalPlayer — รอผู้เล่นโหลดไม่สำเร็จ รันสคริปต์ใหม่อีกครั้งหลังเข้าเกม")
         return
 end
 
@@ -182,7 +182,7 @@ do
         end
 end
 if not ScreenGui.Parent then
-        warn("[GLX v3.5] ใส่ UI ลงเกมไม่ได้ (CoreGui/PlayerGui ถูกปิด) — UI จะไม่แสดง")
+        warn("[GLX v3.6] ใส่ UI ลงเกมไม่ได้ (CoreGui/PlayerGui ถูกปิด) — UI จะไม่แสดง")
 end
 CleanupManager:AddInstance("MainUI", ScreenGui)
 
@@ -556,6 +556,7 @@ createToggle("Weapon Check", State.WeaponCheck, function(v)
 end)
 
 setGlxStatus("UI พร้อม — กำลังโหลดระบบเกม...")
+
 -- ==========================================
 -- 4. WEAPON SERVICE (Cached Weapon Stats)
 -- ==========================================
@@ -1114,6 +1115,7 @@ local function getPredictedPosition(targetPart, shooterPos, deltaTime, leadTime,
 
         return targetPos
 end
+
 -- ==========================================
 -- 8. ESP SERVICE (Throttle 30Hz, Ref-Cached)
 -- ==========================================
@@ -1294,7 +1296,7 @@ local function connectESP()
                         else
                                 espErrStreak += 1
                                 if espErrStreak == 5 then
-                                        warn("[GLX v3.5] ESP tick error: " .. tostring(err))
+                                        warn("[GLX v3.6] ESP tick error: " .. tostring(err))
                                         if setStickyStatus then
                                                 setStickyStatus("ESP error: " .. tostring(err):sub(1, 40))
                                         end
@@ -1366,9 +1368,11 @@ local function hasActiveWeapon()
         return character:FindFirstChildOfClass("Tool") ~= nil
 end
 
-print("[GLX v3.5] โหลดสำเร็จ — aimbot + ESP + self-heal watchdog (ไม่มี hook / ไม่มี input สังเคราะห์)")
+print("[GLX v3.6] โหลดสำเร็จ — aimbot + ESP + self-heal watchdog (ไม่มี hook / ไม่มี input สังเคราะห์)")
 
 local flickUntil = 0
+local flickArmStart = nil
+local FLICK_ARM = 0.06
 local prevReadLook = nil
 local lastWriteLook = nil
 local FLICK_HOLD = 0.10
@@ -1398,7 +1402,7 @@ local function renderTick(deltaTime)
         if lastWriteLook then
                 local wDot = math.clamp(userLook:Dot(lastWriteLook), -1, 1)
                 local wDeg = math.deg(math.acos(wDot))
-                if wDeg > 0.05 and wDeg / dtSafe < userDps then
+                if wDeg / dtSafe < userDps then
                         userDps = wDeg / dtSafe
                 end
         end
@@ -1407,7 +1411,12 @@ local function renderTick(deltaTime)
         lastWriteLook = nil
 
         if State.DragSwitch and userDps > (State.FlickSpeed or 140) then
-                flickUntil = os.clock() + FLICK_HOLD
+                if not flickArmStart then flickArmStart = os.clock() end
+                if os.clock() - flickArmStart >= FLICK_ARM then
+                        flickUntil = os.clock() + FLICK_HOLD
+                end
+        else
+                flickArmStart = nil
         end
 
         local zoomRaw = getZoomScale(camera)
@@ -1495,6 +1504,8 @@ local function renderTick(deltaTime)
                         local effSpeed = math.min(baseRate + errScaled * gain, 70)
                         local sdt = math.min(deltaTime, 1 / 30)
                         local alpha = 1 - math.exp(-effSpeed * sdt)
+                        local maxStepDps = (120 + State.Smoothness * 240) * zoomScale
+                        alpha = math.min(alpha, (maxStepDps * sdt) / math.max(errDeg, 0.05))
 
                         local steering = State.FreeSteer and userDps > STEER_DPS
                                 and prevErrDeg ~= nil and errDeg > prevErrDeg + 0.05
@@ -1538,7 +1549,7 @@ local function connectRenderLoop()
                 else
                         renderErrStreak += 1
                         if renderErrStreak == 10 then
-                                warn("[GLX v3.5] aim loop error: " .. tostring(err))
+                                warn("[GLX v3.6] aim loop error: " .. tostring(err))
                                 if setStickyStatus then
                                         setStickyStatus("aim error: " .. tostring(err):sub(1, 40))
                                 end
@@ -1557,7 +1568,7 @@ local stickyMsg, stickyUntil = nil, 0
 setStickyStatus = function(msg)
         stickyMsg = tostring(msg)
         stickyUntil = os.clock() + 6
-        warn("[GLX v3.5] " .. stickyMsg)
+        warn("[GLX v3.6] " .. stickyMsg)
         if StatusLabel then StatusLabel.Text = stickyMsg end
 end
 
