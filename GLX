@@ -101,11 +101,11 @@ local State = {
         AutoBulletSpeed = true,
         BulletSpeed = 5000,
         BulletGravity = workspace.Gravity,
-        Smoothness = 0.8,
+        Smoothness = 1,
         FOV = 100,
         ShowFOV = false,
         ESP = true,
-        ESPName = false
+        ESPName = true
 }
 
 local function getCamera() return Workspace.CurrentCamera end
