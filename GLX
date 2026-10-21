@@ -1,6 +1,6 @@
--- Luau | glx_aimbot_v3_6.lua | Roblox executor (Synapse-style env)
+-- Luau | glx_aimbot_v3_7.lua | Roblox executor (Synapse-style env)
 -- =====================================================================
--- GLX ADVANCED PREDICTION AIMBOT & ESP (v3.6 — SMOOTH GLIDE BUILD)
+-- GLX ADVANCED PREDICTION AIMBOT & ESP (v3.7 — ANTI-STICKY BUILD)
 -- =====================================================================
 
 local Players = game:GetService("Players")
@@ -17,7 +17,7 @@ if not LocalPlayer then
         end
 end
 if not LocalPlayer then
-        warn("[GLX v3.6] ไม่พบ LocalPlayer — รอผู้เล่นโหลดไม่สำเร็จ รันสคริปต์ใหม่อีกครั้งหลังเข้าเกม")
+        warn("[GLX v3.7] ไม่พบ LocalPlayer — รอผู้เล่นโหลดไม่สำเร็จ รันสคริปต์ใหม่อีกครั้งหลังเข้าเกม")
         return
 end
 
@@ -93,6 +93,7 @@ local State = {
         DragSwitch = true,
         FlickSpeed = 90,
         FreeSteer = true,
+        SwitchAssist = true,
         WeaponCheck = false,
         TargetPartMode = "Head",
         PingCompensation = true,
@@ -142,7 +143,7 @@ local function safeUnit(v3)
 end
 
 -- ==========================================
--- 3.5 FORWARD DECLARATIONS + LOAD STATUS
+-- 3.5 FORWARD DECLARATIONS + LOAD STATUS (v3.1)
 -- ==========================================
 local WeaponService
 local setStickyStatus
@@ -156,7 +157,7 @@ local function setGlxStatus(msg)
 end
 
 -- ==========================================
--- 3.6 UI CONSTRUCTION
+-- 3.6 UI CONSTRUCTION (v3.1 — สร้าง UI "ก่อน" ระบบอื่นทั้งหมด)
 -- ==========================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "Glx_UI"
@@ -182,7 +183,7 @@ do
         end
 end
 if not ScreenGui.Parent then
-        warn("[GLX v3.6] ใส่ UI ลงเกมไม่ได้ (CoreGui/PlayerGui ถูกปิด) — UI จะไม่แสดง")
+        warn("[GLX v3.7] ใส่ UI ลงเกมไม่ได้ (CoreGui/PlayerGui ถูกปิด) — UI จะไม่แสดง")
 end
 CleanupManager:AddInstance("MainUI", ScreenGui)
 
@@ -547,6 +548,7 @@ end)
 createToggle("Drag To Switch", State.DragSwitch, function(v) State.DragSwitch = v end)
 
 createToggle("Free Steer", State.FreeSteer, function(v) State.FreeSteer = v end)
+createToggle("Switch Assist", State.SwitchAssist, function(v) State.SwitchAssist = v end)
 createSlider("Flick Speed (°/s)", 60, 300, State.FlickSpeed, 5, function(v)
         State.FlickSpeed = v
 end)
@@ -556,7 +558,6 @@ createToggle("Weapon Check", State.WeaponCheck, function(v)
 end)
 
 setGlxStatus("UI พร้อม — กำลังโหลดระบบเกม...")
-
 -- ==========================================
 -- 4. WEAPON SERVICE (Cached Weapon Stats)
 -- ==========================================
@@ -793,6 +794,9 @@ local zoomSmoothed = nil
 local SWITCH_COOLDOWN = 0.30
 local switchAwayKey = nil
 local switchCooldownUntil = 0
+local SWITCH_RATIO = 0.50
+local SWITCH_CHECK_INTERVAL = 0.05
+local lastSwitchCheck = 0
 
 -- ==========================================
 -- 6. TARGET SERVICE (State Machine)
@@ -884,6 +888,57 @@ function TargetService:AcquireTarget(camera, screenCenter, scaledFOV)
                 end
                 self.CurrentTarget = closestPlayer
                 self.TargetPart = bestPart
+        end
+end
+
+function TargetService:CheckSwitch(camera, screenCenter, scaledFOV)
+        local now = os.clock()
+        if now - lastSwitchCheck < SWITCH_CHECK_INTERVAL then return end
+        lastSwitchCheck = now
+
+        local target = self.CurrentTarget
+        local part = self.TargetPart
+        if not (target and part and part.Parent) then return end
+
+        local myPoint, myOn = camera:WorldToViewportPoint(part.Position)
+        if not (myOn and myPoint.Z > 0) then return end
+        local myDist = (Vector2.new(myPoint.X, myPoint.Y) - screenCenter).Magnitude
+
+        local limit = math.min(myDist * SWITCH_RATIO, scaledFOV)
+        if limit <= 0 then return end
+
+        local cooldownActive = switchCooldownUntil > now and switchAwayKey ~= nil
+        local bestDist = limit
+        local bestPlayer, bestPart = nil, nil
+
+        local players = Players:GetPlayers()
+        for i = 1, #players do
+                local player = players[i]
+                if player ~= target and isValidEnemy(player) then
+                        local cand = self:GetTargetPart(player.Character)
+                        if cand then
+                                local sp, onScreen = camera:WorldToViewportPoint(cand.Position)
+                                if onScreen and sp.Z > 0 then
+                                        local dist = (Vector2.new(sp.X, sp.Y) - screenCenter).Magnitude
+                                        local banned = cooldownActive and player == switchAwayKey
+                                        if dist < bestDist and (not banned or dist <= scaledFOV * 0.12) then
+                                                bestDist = dist
+                                                bestPlayer = player
+                                                bestPart = cand
+                                        end
+                                end
+                        end
+                end
+        end
+
+        if bestPlayer and (not State.WallCheck
+                or VisibilityService:CheckVisibility(bestPlayer.Character, 1, bestPart)) then
+                switchAwayKey = target
+                switchCooldownUntil = now + SWITCH_COOLDOWN
+                self.CurrentTarget = bestPlayer
+                self.TargetPart = bestPart
+                self.LockedPartName = nil
+                targetGraceUntil = 0
         end
 end
 -- ==========================================
@@ -1115,7 +1170,6 @@ local function getPredictedPosition(targetPart, shooterPos, deltaTime, leadTime,
 
         return targetPos
 end
-
 -- ==========================================
 -- 8. ESP SERVICE (Throttle 30Hz, Ref-Cached)
 -- ==========================================
@@ -1296,7 +1350,7 @@ local function connectESP()
                         else
                                 espErrStreak += 1
                                 if espErrStreak == 5 then
-                                        warn("[GLX v3.6] ESP tick error: " .. tostring(err))
+                                        warn("[GLX v3.7] ESP tick error: " .. tostring(err))
                                         if setStickyStatus then
                                                 setStickyStatus("ESP error: " .. tostring(err):sub(1, 40))
                                         end
@@ -1368,7 +1422,7 @@ local function hasActiveWeapon()
         return character:FindFirstChildOfClass("Tool") ~= nil
 end
 
-print("[GLX v3.6] โหลดสำเร็จ — aimbot + ESP + self-heal watchdog (ไม่มี hook / ไม่มี input สังเคราะห์)")
+print("[GLX v3.7] โหลดสำเร็จ — aimbot + ESP + self-heal watchdog (ไม่มี hook / ไม่มี input สังเคราะห์)")
 
 local flickUntil = 0
 local flickArmStart = nil
@@ -1376,7 +1430,7 @@ local FLICK_ARM = 0.06
 local prevReadLook = nil
 local lastWriteLook = nil
 local FLICK_HOLD = 0.10
-local STEER_DPS = 45
+local STEER_DPS = 30
 local STEER_HOLD = 0.22
 local STEER_MIN_INFLUENCE = 0.15
 local STEER_TAU = 0.07
@@ -1402,7 +1456,13 @@ local function renderTick(deltaTime)
         if lastWriteLook then
                 local wDot = math.clamp(userLook:Dot(lastWriteLook), -1, 1)
                 local wDeg = math.deg(math.acos(wDot))
-                if wDeg / dtSafe < userDps then
+                local againstPull = false
+                if prevReadLook then
+                        local pullAxis = prevReadLook:Cross(lastWriteLook)
+                        local handAxis = lastWriteLook:Cross(userLook)
+                        againstPull = pullAxis:Dot(handAxis) < 0
+                end
+                if againstPull or wDeg / dtSafe < userDps then
                         userDps = wDeg / dtSafe
                 end
         end
@@ -1487,6 +1547,10 @@ local function renderTick(deltaTime)
                 TargetService:AcquireTarget(camera, screenCenter, scaledFOV)
         end
 
+        if State.SwitchAssist and TargetService.CurrentTarget then
+                TargetService:CheckSwitch(camera, screenCenter, scaledFOV)
+        end
+
         local targetPart = TargetService.TargetPart
         if TargetService.CurrentTarget and targetPart and targetPart.Parent then
                 local shooterPos = camera.CFrame.Position
@@ -1549,7 +1613,7 @@ local function connectRenderLoop()
                 else
                         renderErrStreak += 1
                         if renderErrStreak == 10 then
-                                warn("[GLX v3.6] aim loop error: " .. tostring(err))
+                                warn("[GLX v3.7] aim loop error: " .. tostring(err))
                                 if setStickyStatus then
                                         setStickyStatus("aim error: " .. tostring(err):sub(1, 40))
                                 end
@@ -1568,7 +1632,7 @@ local stickyMsg, stickyUntil = nil, 0
 setStickyStatus = function(msg)
         stickyMsg = tostring(msg)
         stickyUntil = os.clock() + 6
-        warn("[GLX v3.6] " .. stickyMsg)
+        warn("[GLX v3.7] " .. stickyMsg)
         if StatusLabel then StatusLabel.Text = stickyMsg end
 end
 
