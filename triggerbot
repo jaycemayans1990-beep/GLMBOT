@@ -1,6 +1,6 @@
--- Luau | snyx_aimbot_v3_4.lua | Roblox executor (Synapse-style env)
+-- Luau | glx_aimbot_v3_4.lua | Roblox executor (Synapse-style env)
 -- =====================================================================
--- SNYX ADVANCED PREDICTION AIMBOT & ESP (v3.4 — SELF-HEAL BUILD)
+-- GLX ADVANCED PREDICTION AIMBOT & ESP (v3.4 — SELF-HEAL BUILD)
 -- =====================================================================
 
 local Players = game:GetService("Players")
@@ -17,7 +17,7 @@ if not LocalPlayer then
         end
 end
 if not LocalPlayer then
-        warn("[SNYX v3.4] ไม่พบ LocalPlayer — รอผู้เล่นโหลดไม่สำเร็จ รันสคริปต์ใหม่อีกครั้งหลังเข้าเกม")
+        warn("[GLX v3.4] ไม่พบ LocalPlayer — รอผู้เล่นโหลดไม่สำเร็จ รันสคริปต์ใหม่อีกครั้งหลังเข้าเกม")
         return
 end
 
@@ -56,7 +56,8 @@ function CleanupManager:AddCustomCleanup(func)
 end
 
 function CleanupManager:CleanAll()
-        getgenv().SnyX_Running = false
+        getgenv().Glx_Running = false
+
         for _, conn in pairs(self.Connections) do pcall(conn.Disconnect, conn) end
         for _, inst in pairs(self.Instances) do pcall(inst.Destroy, inst) end
         for _, draw in pairs(self.Drawings) do pcall(draw.Remove, draw) end
@@ -71,8 +72,11 @@ end
 if getgenv().SnyX_Cleanup and type(getgenv().SnyX_Cleanup.CleanAll) == "function" then
         pcall(getgenv().SnyX_Cleanup.CleanAll, getgenv().SnyX_Cleanup)
 end
-getgenv().SnyX_Cleanup = CleanupManager
-getgenv().SnyX_Running = true
+if getgenv().Glx_Cleanup and type(getgenv().Glx_Cleanup.CleanAll) == "function" then
+        pcall(getgenv().Glx_Cleanup.CleanAll, getgenv().Glx_Cleanup)
+end
+getgenv().Glx_Cleanup = CleanupManager
+getgenv().Glx_Running = true
 
 -- ==========================================
 -- 2. STATE (Global Configuration)
@@ -92,8 +96,8 @@ local State = {
         FreeSteer = true,
         WeaponCheck = false,
         TargetPartMode = "Head",
-        PingCompensation = false,
-        DropIsMultiplier = false,
+        PingCompensation = true,
+        DropIsMultiplier = true,
         AutoBulletSpeed = true,
         BulletSpeed = 5000,
         BulletGravity = workspace.Gravity,
@@ -105,6 +109,7 @@ local State = {
 }
 
 local function getCamera() return Workspace.CurrentCamera end
+
 local DEFAULT_FOV = 70
 
 local function getZoomScale(camera)
@@ -137,12 +142,15 @@ local function safeUnit(v3)
         return isFiniteVec3(unit) and unit or nil
 end
 
+-- ==========================================
+-- 3.5 FORWARD DECLARATIONS + LOAD STATUS (v3.1)
+-- ==========================================
 local WeaponService
 local setStickyStatus
 
 local setStatusFn = nil
-local function setSnyxStatus(msg)
-        print("[SNYX] " .. tostring(msg))
+local function setGlxStatus(msg)
+        print("[GLX] " .. tostring(msg))
         if setStatusFn then
                 pcall(setStatusFn, tostring(msg))
         end
@@ -152,7 +160,7 @@ end
 -- 3.6 UI CONSTRUCTION
 -- ==========================================
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "SnyX_UI"
+ScreenGui.Name = "Glx_UI"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.DisplayOrder = 999999
 do
@@ -174,13 +182,16 @@ do
                 if okP and ScreenGui.Parent ~= nil then break end
         end
 end
+if not ScreenGui.Parent then
+        warn("[GLX v3.4] ใส่ UI ลงเกมไม่ได้ (CoreGui/PlayerGui ถูกปิด) — UI จะไม่แสดง")
+end
 CleanupManager:AddInstance("MainUI", ScreenGui)
 
 local ToggleBtn = Instance.new("TextButton")
 ToggleBtn.Size = UDim2.new(0, 45, 0, 45)
 ToggleBtn.Position = UDim2.new(0.03, 0, 0.2, 0)
 ToggleBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-ToggleBtn.Text = "SnyX"
+ToggleBtn.Text = "Glx"
 ToggleBtn.TextColor3 = Color3.fromRGB(180, 0, 255)
 ToggleBtn.Font = Enum.Font.SourceSansBold
 ToggleBtn.TextSize = 14
@@ -251,7 +262,7 @@ end
 local TitleBar = Instance.new("TextLabel")
 TitleBar.Size = UDim2.new(1, 0, 0, 35)
 TitleBar.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-TitleBar.Text = "  SNYX ADVANCED SYSTEM"
+TitleBar.Text = "  GLX ADVANCED SYSTEM"
 TitleBar.TextColor3 = Color3.fromRGB(255, 255, 255)
 TitleBar.Font = Enum.Font.SourceSansBold
 TitleBar.TextSize = 14
@@ -547,7 +558,7 @@ createToggle("Weapon Check", State.WeaponCheck, function(v)
         State.WeaponCheck = v
 end)
 
-setSnyxStatus("UI พร้อม — กำลังโหลดระบบเกม...")
+setGlxStatus("UI พร้อม — กำลังโหลดระบบเกม...")
 -- ==========================================
 -- 4. WEAPON SERVICE (Cached Weapon Stats)
 -- ==========================================
@@ -877,6 +888,7 @@ function TargetService:AcquireTarget(camera, screenCenter, scaledFOV)
                 self.TargetPart = bestPart
         end
 end
+
 -- ==========================================
 -- 7. ADVANCED PREDICTION ENGINE
 -- ==========================================
@@ -899,7 +911,7 @@ local function clampAccelLead(v3, cap)
 end
 
 task.spawn(function()
-        while getgenv().SnyX_Running and task.wait(10) do
+        while getgenv().Glx_Running and task.wait(10) do
                 for part in pairs(TargetStates) do
                         if typeof(part) ~= "Instance" or not part:IsDescendantOf(workspace) then
                                 TargetStates[part] = nil
@@ -1286,7 +1298,7 @@ local function connectESP()
                         else
                                 espErrStreak += 1
                                 if espErrStreak == 5 then
-                                        warn("[SNYX v3.4] ESP tick error: " .. tostring(err))
+                                        warn("[GLX v3.4] ESP tick error: " .. tostring(err))
                                         if setStickyStatus then
                                                 setStickyStatus("ESP error: " .. tostring(err):sub(1, 40))
                                         end
@@ -1298,7 +1310,7 @@ end
 connectESP()
 
 task.spawn(function()
-        while getgenv().SnyX_Cleanup == CleanupManager and task.wait(5) do
+        while getgenv().Glx_Cleanup == CleanupManager and task.wait(5) do
                 local owned
                 for _, entry in pairs(ESPService.Cache) do
                         if entry.Highlight or entry.NameTag then
@@ -1341,7 +1353,7 @@ do
                         Filled = false, Transparency = 0.7, NumSides = 3,
                         Remove = function() end
                 }
-                setSnyxStatus("Drawing lib ไม่พบ — วง FOV ปิด (ฟีเจอร์อื่นปกติ)")
+                setGlxStatus("Drawing lib ไม่พบ — วง FOV ปิด (ฟีเจอร์อื่นปกติ)")
         end
 end
 FOVCircle.Thickness = 1.5
@@ -1358,7 +1370,7 @@ local function hasActiveWeapon()
         return character:FindFirstChildOfClass("Tool") ~= nil
 end
 
-print("[SNYX v3.4] โหลดสำเร็จ — aimbot + ESP + self-heal watchdog (ไม่มี hook / ไม่มี input สังเคราะห์)")
+print("[GLX v3.4] โหลดสำเร็จ — aimbot + ESP + self-heal watchdog (ไม่มี hook / ไม่มี input สังเคราะห์)")
 
 local flickUntil = 0
 local prevReadLook = nil
@@ -1557,7 +1569,7 @@ local function connectRenderLoop()
                 else
                         renderErrStreak += 1
                         if renderErrStreak == 10 then
-                                warn("[SNYX v3.4] aim loop error: " .. tostring(err))
+                                warn("[GLX v3.4] aim loop error: " .. tostring(err))
                                 if setStickyStatus then
                                         setStickyStatus("aim error: " .. tostring(err):sub(1, 40))
                                 end
@@ -1570,13 +1582,13 @@ connectRenderLoop()
 -- ==========================================
 -- 11. LOAD REPORT & WATCHDOG
 -- ==========================================
-setSnyxStatus("โหลดครบทุกระบบ — พร้อมใช้")
+setGlxStatus("โหลดครบทุกระบบ — พร้อมใช้")
 
 local stickyMsg, stickyUntil = nil, 0
 setStickyStatus = function(msg)
         stickyMsg = tostring(msg)
         stickyUntil = os.clock() + 6
-        warn("[SNYX v3.4] " .. stickyMsg)
+        warn("[GLX v3.4] " .. stickyMsg)
         if StatusLabel then StatusLabel.Text = stickyMsg end
 end
 
